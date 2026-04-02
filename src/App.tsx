@@ -46,7 +46,7 @@ import {
   serverTimestamp,
   Timestamp
 } from 'firebase/firestore';
-import { db, auth } from './firebase';
+import { db, auth, googleProvider, signInWithPopup, signOut, onAuthStateChanged } from './firebase';
 import { cn } from './lib/utils';
 import { Task, Priority, Assignee, AppNotification, Status, User, UserRole, TaskAlarm } from './types';
 
@@ -227,30 +227,49 @@ export default function App() {
     note: string;
   }>({ isOpen: false, assigneeId: '', assigneeName: '', note: '' });
   const [confirmReset, setConfirmReset] = useState(false);
-  const [currentUser, setCurrentUser] = useState<User | null>(() => {
-    const saved = localStorage.getItem('taskflow_user');
-    return saved ? JSON.parse(saved) : null;
-  });
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
 
   const isAdmin = currentUser?.role === 'admin';
 
+  // Auth Listener
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        const userRole: UserRole = user.email === 'knight2524@gmail.com' ? 'admin' : 'member';
+        setCurrentUser({
+          id: user.uid,
+          name: user.displayName || '이름 없음',
+          role: userRole,
+          password: '' // Not used for Google Auth
+        });
+      } else {
+        setCurrentUser(null);
+      }
+      setIsAuthLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
   // Firestore Synchronization
   useEffect(() => {
+    if (!currentUser) return;
     const q = query(collection(db, 'tasks'), orderBy('createdAt', 'desc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const tasksData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Task));
       setTasks(tasksData);
     }, (error) => handleFirestoreError(error, OperationType.LIST, 'tasks'));
     return () => unsubscribe();
-  }, []);
+  }, [currentUser]);
 
   useEffect(() => {
+    if (!currentUser) return;
     const unsubscribe = onSnapshot(collection(db, 'assignees'), (snapshot) => {
       const assigneesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Assignee));
       setAssignees(assigneesData);
     }, (error) => handleFirestoreError(error, OperationType.LIST, 'assignees'));
     return () => unsubscribe();
-  }, []);
+  }, [currentUser]);
 
   useEffect(() => {
     if (!currentUser) return;
@@ -755,28 +774,31 @@ export default function App() {
     }
   };
 
-  const handleLogout = () => {
-    setCurrentUser(null);
-    setActiveTab('dashboard');
-  };
-
-  const handleLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!loginUser) return;
-
-    if (loginPassword === loginUser.password) {
-      const userToSet: User = 'role' in loginUser 
-        ? loginUser as User 
-        : { ...loginUser, role: 'member' } as User;
-      
-      setCurrentUser(userToSet);
-      setLoginUser(null);
-      setLoginPassword('');
-      setLoginError('');
-    } else {
-      setLoginError('비밀번호가 일치하지 않습니다.');
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      setActiveTab('dashboard');
+    } catch (error) {
+      console.error('Logout error:', error);
     }
   };
+
+  const handleGoogleLogin = async () => {
+    try {
+      await signInWithPopup(auth, googleProvider);
+    } catch (error) {
+      console.error('Login error:', error);
+      setLoginError('로그인 중 오류가 발생했습니다.');
+    }
+  };
+
+  if (isAuthLoading) {
+    return (
+      <div className="min-h-screen bg-[#F8F9FA] flex items-center justify-center font-sans">
+        <div className="w-12 h-12 border-4 border-[#4F46E5] border-t-transparent rounded-full animate-spin"></div>
+      </div>
+    );
+  }
 
   if (!currentUser) {
     return (
@@ -792,93 +814,19 @@ export default function App() {
             </div>
             <h1 className="text-2xl font-bold tracking-tight">TaskFlow 로그인</h1>
             <p className="text-[#6B7280] text-sm mt-1">
-              {loginUser ? `${loginUser.name}님으로 로그인` : '계정 유형을 선택하여 시작하세요.'}
+              구글 계정으로 로그인하여 시작하세요.
             </p>
           </div>
 
-          <AnimatePresence mode="wait">
-            {!loginUser ? (
-              <motion.div 
-                key="selection"
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: 20 }}
-                className="space-y-4"
-              >
-                <button 
-                  onClick={() => setLoginUser(ADMIN_USER)}
-                  className="w-full flex items-center gap-4 p-4 bg-white border-2 border-[#E5E7EB] rounded-2xl hover:border-[#4F46E5] hover:bg-indigo-50 transition-all group"
-                >
-                  <div className="w-12 h-12 bg-indigo-100 rounded-xl flex items-center justify-center text-[#4F46E5] group-hover:bg-[#4F46E5] group-hover:text-white transition-colors">
-                    <Settings className="w-6 h-6" />
-                  </div>
-                  <div className="text-left">
-                    <p className="font-bold">관리자로 접속</p>
-                    <p className="text-xs text-[#6B7280]">모든 권한을 가집니다.</p>
-                  </div>
-                </button>
-
-                <div className="relative py-2">
-                  <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-[#E5E7EB]"></div></div>
-                  <div className="relative flex justify-center text-xs uppercase"><span className="bg-white px-2 text-[#9CA3AF] font-bold">또는 팀원으로 접속</span></div>
-                </div>
-
-                <div className="grid grid-cols-1 gap-3 max-h-60 overflow-y-auto pr-2">
-                  {assignees.map(assignee => (
-                    <button 
-                      key={assignee.id}
-                      onClick={() => setLoginUser(assignee)}
-                      className="flex items-center gap-3 p-3 bg-[#F9FAFB] border border-[#E5E7EB] rounded-xl hover:bg-white hover:border-[#4F46E5] transition-all group"
-                    >
-                      <div className="w-8 h-8 bg-white border border-[#E5E7EB] rounded-full flex items-center justify-center text-[#6B7280] group-hover:text-[#4F46E5]">
-                        <UserIcon className="w-4 h-4" />
-                      </div>
-                      <div className="text-left">
-                        <p className="text-sm font-bold">{assignee.name}</p>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </motion.div>
-            ) : (
-              <motion.form 
-                key="password"
-                initial={{ opacity: 0, x: 20 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -20 }}
-                onSubmit={handleLogin}
-                className="space-y-6"
-              >
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-[#9CA3AF] uppercase tracking-wider">비밀번호 입력</label>
-                  <input 
-                    autoFocus
-                    type="password" 
-                    placeholder="비밀번호를 입력하세요"
-                    value={loginPassword}
-                    onChange={(e) => setLoginPassword(e.target.value)}
-                    className="w-full px-4 py-3 bg-[#F9FAFB] border border-[#E5E7EB] rounded-xl focus:ring-2 focus:ring-[#4F46E5] outline-none transition-all"
-                  />
-                  {loginError && <p className="text-xs text-red-500 font-medium">{loginError}</p>}
-                </div>
-                <div className="flex gap-3">
-                  <button 
-                    type="button"
-                    onClick={() => { setLoginUser(null); setLoginPassword(''); setLoginError(''); }}
-                    className="flex-1 py-3 bg-[#F3F4F6] text-[#6B7280] rounded-xl font-bold hover:bg-[#E5E7EB] transition-all"
-                  >
-                    뒤로가기
-                  </button>
-                  <button 
-                    type="submit"
-                    className="flex-[2] py-3 bg-[#4F46E5] text-white rounded-xl font-bold shadow-lg shadow-indigo-100 hover:bg-[#4338CA] transition-all"
-                  >
-                    로그인
-                  </button>
-                </div>
-              </motion.form>
-            )}
-          </AnimatePresence>
+          <button 
+            onClick={handleGoogleLogin}
+            className="w-full flex items-center justify-center gap-4 p-4 bg-white border-2 border-[#E5E7EB] rounded-2xl hover:border-[#4F46E5] hover:bg-indigo-50 transition-all group"
+          >
+            <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" className="w-6 h-6" />
+            <span className="font-bold">Google로 로그인</span>
+          </button>
+          
+          {loginError && <p className="text-xs text-red-500 font-medium mt-4 text-center">{loginError}</p>}
         </motion.div>
       </div>
     );
