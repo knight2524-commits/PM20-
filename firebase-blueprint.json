@@ -1,0 +1,70 @@
+{
+  "entities": {
+    "Task": {
+      "title": "Task",
+      "description": "A task assigned to a team member.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "description": "The title of the task." },
+        "description": { "type": "string", "description": "A detailed description of the task." },
+        "assigneeId": { "type": "string", "description": "The ID of the assignee." },
+        "assigneeName": { "type": "string", "description": "The name of the assignee." },
+        "priority": { "type": "string", "enum": ["low", "medium", "high"], "description": "The priority level." },
+        "status": { "type": "string", "enum": ["todo", "in-progress", "done"], "description": "The current status." },
+        "dueDate": { "type": "string", "format": "date", "description": "The due date (YYYY-MM-DD)." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "The creation timestamp." },
+        "progress": { "type": "number", "description": "The progress percentage (0-100)." },
+        "alarms": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "time": { "type": "string", "format": "date-time" },
+              "triggered": { "type": "boolean" }
+            }
+          }
+        }
+      },
+      "required": ["title", "assigneeId", "status", "createdAt"]
+    },
+    "Assignee": {
+      "title": "Assignee",
+      "description": "A team member who can be assigned tasks.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "The name of the team member." },
+        "password": { "type": "string", "description": "The login password." },
+        "note": { "type": "string", "description": "A personal note for the team member." }
+      },
+      "required": ["name", "password"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "An in-app notification for a user.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "description": "The notification title." },
+        "message": { "type": "string", "description": "The notification message." },
+        "type": { "type": "string", "enum": ["info", "warning", "success", "error"] },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "read": { "type": "boolean" },
+        "userId": { "type": "string", "description": "The ID of the user this notification is for." }
+      },
+      "required": ["title", "message", "timestamp", "read"]
+    }
+  },
+  "firestore": {
+    "/tasks/{taskId}": {
+      "schema": "Task",
+      "description": "Collection of all tasks."
+    },
+    "/assignees/{assigneeId}": {
+      "schema": "Assignee",
+      "description": "Collection of all team members."
+    },
+    "/notifications/{notificationId}": {
+      "schema": "Notification",
+      "description": "Collection of user notifications."
+    }
+  }
+}

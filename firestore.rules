@@ -1,0 +1,78 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: tasks
+    // Fields: title, description, assigneeId, assigneeName, priority, status, dueDate, createdAt, progress, alarms
+    //
+    // Collection: assignees
+    // Fields: name, password, note
+    //
+    // Collection: notifications
+    // Fields: title, message, type, timestamp, read, userId
+    //
+    // ===============================================================
+
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && 
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+         request.auth.token.email == "knight2524@gmail.com");
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Validation Functions
+    function isValidTask(data) {
+      return data.title is string && data.title.size() > 0 && data.title.size() < 200 &&
+             data.assigneeId is string &&
+             data.status in ['todo', 'in-progress', 'done'] &&
+             data.priority in ['low', 'medium', 'high'];
+    }
+
+    function isValidAssignee(data) {
+      return data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.password is string && data.password.size() > 0;
+    }
+
+    function isValidNotification(data) {
+      return data.title is string && data.message is string &&
+             data.type in ['info', 'warning', 'success', 'error'] &&
+             data.timestamp is string &&
+             data.read is bool;
+    }
+
+    // Rules
+    match /tasks/{taskId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAuthenticated() && isValidTask(request.resource.data);
+      allow delete: if isAuthenticated(); // In a real app, maybe only admin or owner
+    }
+
+    match /assignees/{assigneeId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAuthenticated() && isValidAssignee(request.resource.data);
+      allow delete: if isAuthenticated();
+    }
+
+    match /notifications/{notificationId} {
+      allow read: if isAuthenticated() && (resource == null || resource.data.userId == request.auth.uid);
+      allow create: if isAuthenticated() && isValidNotification(request.resource.data);
+      allow update: if isAuthenticated() && resource.data.userId == request.auth.uid && isValidNotification(request.resource.data);
+      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+
+    match /test/connection {
+      allow read: if true;
+    }
+  }
+}
