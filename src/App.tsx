@@ -1246,8 +1246,8 @@ export default function App() {
                     {/* Team Progress Summary */}
                     <div className="bg-white rounded-2xl p-6 shadow-sm border border-[#E5E7EB]">
                       <h2 className="text-lg font-bold mb-6">팀원별 진행률</h2>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        {teamStats.slice(0, 4).map(member => (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+                        {teamStats.map(member => (
                           <div key={member.id} className="p-4 bg-[#F9FAFB] rounded-xl border border-[#E5E7EB]">
                             <div className="flex items-center justify-between mb-3">
                               <span className="font-bold text-sm">{member.name}</span>
@@ -1572,7 +1572,7 @@ export default function App() {
                 </div>
 
                 {viewMode === 'list' ? (
-                  <div className="bg-white rounded-2xl shadow-sm border border-[#E5E7EB] overflow-hidden overflow-x-auto">
+                  <div className="bg-white rounded-2xl shadow-sm border border-[#E5E7EB] overflow-hidden overflow-x-auto min-h-[600px]">
                     <table className="w-full text-left border-collapse min-w-[800px]">
                       <thead>
                         <tr className="bg-[#F9FAFB] border-b border-[#E5E7EB]">
