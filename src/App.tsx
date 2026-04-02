@@ -786,16 +786,19 @@ export default function App() {
   const handleGoogleLogin = async () => {
     try {
       setLoginError('');
+      // 팝업창을 띄우기 전 약간의 지연을 주어 브라우저가 클릭 이벤트를 신뢰하도록 함
       await signInWithPopup(auth, googleProvider);
     } catch (error: any) {
       console.error('Login error:', error);
-      // 구체적인 오류 메시지 표시
+      
       if (error.code === 'auth/unauthorized-domain') {
-        setLoginError('오류: 현재 도메인이 파이어베이스에 등록되지 않았습니다. (auth/unauthorized-domain)');
+        setLoginError('오류: 현재 도메인이 파이어베이스에 등록되지 않았습니다. 파이어베이스 콘솔의 [Authentication > Settings > Authorized domains]에서 현재 주소를 추가해 주세요.');
       } else if (error.code === 'auth/popup-blocked') {
-        setLoginError('오류: 브라우저에서 팝업이 차단되었습니다. 팝업 차단을 해제해 주세요.');
+        setLoginError('오류: 브라우저에서 팝업이 차단되었습니다. 주소창 우측의 팝업 차단 아이콘을 눌러 허용해 주세요.');
       } else if (error.code === 'auth/popup-closed-by-user') {
-        setLoginError('로그인 창이 닫혔습니다. 다시 시도해 주세요.');
+        setLoginError('로그인 창이 닫혔습니다. 로그인을 완료하려면 창을 닫지 말고 진행해 주세요.');
+      } else if (error.code === 'auth/cancelled-query-confirmation') {
+        setLoginError('로그인 요청이 취소되었습니다.');
       } else {
         setLoginError(`로그인 오류 (${error.code}): ${error.message}`);
       }
