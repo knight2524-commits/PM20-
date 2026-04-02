@@ -273,13 +273,13 @@ export default function App() {
   }, [currentUser]);
 
   useEffect(() => {
-    if (!currentUser) return;
+    // Fetch assignees even if not logged in so the login screen can show them
     const unsubscribe = onSnapshot(collection(db, 'assignees'), (snapshot) => {
       const assigneesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Assignee));
       setAssignees(assigneesData);
     }, (error) => handleFirestoreError(error, OperationType.LIST, 'assignees'));
     return () => unsubscribe();
-  }, [currentUser]);
+  }, []);
 
   useEffect(() => {
     if (!currentUser) return;
