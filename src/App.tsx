@@ -785,10 +785,20 @@ export default function App() {
 
   const handleGoogleLogin = async () => {
     try {
+      setLoginError('');
       await signInWithPopup(auth, googleProvider);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Login error:', error);
-      setLoginError('로그인 중 오류가 발생했습니다.');
+      // 구체적인 오류 메시지 표시
+      if (error.code === 'auth/unauthorized-domain') {
+        setLoginError('오류: 현재 도메인이 파이어베이스에 등록되지 않았습니다. (auth/unauthorized-domain)');
+      } else if (error.code === 'auth/popup-blocked') {
+        setLoginError('오류: 브라우저에서 팝업이 차단되었습니다. 팝업 차단을 해제해 주세요.');
+      } else if (error.code === 'auth/popup-closed-by-user') {
+        setLoginError('로그인 창이 닫혔습니다. 다시 시도해 주세요.');
+      } else {
+        setLoginError(`로그인 오류 (${error.code}): ${error.message}`);
+      }
     }
   };
 
