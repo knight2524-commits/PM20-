@@ -270,7 +270,8 @@ export default function App() {
     productName: '',
     productNumber: '',
     discountRate: 0,
-    discountPrice: 0
+    discountPrice: 0,
+    file: null as File | null
   });
 
   const [ledgerForm, setLedgerForm] = useState<{
@@ -590,15 +591,21 @@ export default function App() {
     });
   }, [tasks, searchQuery, filters, isAdmin, currentUser, activeTab]);
 
+  const [viewingPromotionFile, setViewingPromotionFile] = useState<SpecialPromotion | null>(null);
+
   const filteredPromotions = useMemo(() => {
     return promotions.filter(p => {
       const search = searchQuery.toLowerCase();
-      return p.brand.toLowerCase().includes(search) || 
-             p.productName.toLowerCase().includes(search) || 
-             p.productNumber.toLowerCase().includes(search) || 
-             p.orderCode.toLowerCase().includes(search);
+      return (p.brand?.toLowerCase().includes(search) || 
+             p.productName?.toLowerCase().includes(search) || 
+             p.productNumber?.toLowerCase().includes(search) || 
+             p.orderCode?.toLowerCase().includes(search) ||
+             p.fileName?.toLowerCase().includes(search));
     });
   }, [promotions, searchQuery]);
+
+  const filePromotions = useMemo(() => filteredPromotions.filter(p => p.fileUrl), [filteredPromotions]);
+  const manualPromotions = useMemo(() => filteredPromotions.filter(p => p.brand && p.productName), [filteredPromotions]);
 
   const filteredLedgers = useMemo(() => {
     let base = ledgers;
@@ -740,16 +747,40 @@ export default function App() {
 
   const handleSavePromotion = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!promotionForm.brand || !promotionForm.productName) return;
     try {
+      let fileData = {};
+      if (promotionForm.file) {
+        const reader = new FileReader();
+        const fileContent = await new Promise<string>((resolve) => {
+          reader.onload = (e) => resolve(e.target?.result as string);
+          reader.readAsDataURL(promotionForm.file!);
+        });
+        fileData = {
+          fileName: promotionForm.file.name,
+          fileUrl: fileContent, // Base64 for simulation
+        };
+      }
+
       if (editingPromotion) {
         await updateDoc(doc(db, 'special_promotions', editingPromotion.id), {
-          ...promotionForm,
+          brand: promotionForm.brand,
+          orderCode: promotionForm.orderCode,
+          productName: promotionForm.productName,
+          productNumber: promotionForm.productNumber,
+          discountRate: promotionForm.discountRate,
+          discountPrice: promotionForm.discountPrice,
+          ...fileData,
           updatedAt: new Date().toISOString()
         });
       } else {
         await addDoc(collection(db, 'special_promotions'), {
-          ...promotionForm,
+          brand: promotionForm.brand,
+          orderCode: promotionForm.orderCode,
+          productName: promotionForm.productName,
+          productNumber: promotionForm.productNumber,
+          discountRate: promotionForm.discountRate,
+          discountPrice: promotionForm.discountPrice,
+          ...fileData,
           createdAt: new Date().toISOString()
         });
       }
@@ -761,7 +792,8 @@ export default function App() {
         productName: '',
         productNumber: '',
         discountRate: 0,
-        discountPrice: 0
+        discountPrice: 0,
+        file: null
       });
     } catch (error) {
       handleFirestoreError(error, editingPromotion ? OperationType.UPDATE : OperationType.CREATE, 'special_promotions');
@@ -2228,7 +2260,7 @@ export default function App() {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -20 }}
-                className="space-y-6"
+                className="space-y-8"
               >
                 <div className="flex items-center justify-between">
                   <h2 className="text-2xl font-bold">특판 안내</h2>
@@ -2236,7 +2268,7 @@ export default function App() {
                     <button 
                       onClick={() => {
                         setEditingPromotion(null);
-                        setPromotionForm({ brand: '', orderCode: '', productName: '', productNumber: '', discountRate: 0, discountPrice: 0 });
+                        setPromotionForm({ brand: '', orderCode: '', productName: '', productNumber: '', discountRate: 0, discountPrice: 0, file: null });
                         setIsPromotionModalOpen(true);
                       }}
                       className="flex items-center gap-2 px-4 py-2 bg-[#4F46E5] text-white rounded-xl font-semibold hover:bg-[#4338CA] transition-all"
@@ -2246,73 +2278,124 @@ export default function App() {
                   )}
                 </div>
 
-                <div className="bg-white rounded-2xl shadow-sm border border-[#E5E7EB] overflow-hidden">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left border-collapse">
-                      <thead>
-                        <tr className="bg-[#F9FAFB] border-b border-[#E5E7EB]">
-                          <th className="px-6 py-4 text-xs font-bold text-[#6B7280] uppercase tracking-wider">브랜드</th>
-                          <th className="px-6 py-4 text-xs font-bold text-[#6B7280] uppercase tracking-wider">발주코드</th>
-                          <th className="px-6 py-4 text-xs font-bold text-[#6B7280] uppercase tracking-wider">품명</th>
-                          <th className="px-6 py-4 text-xs font-bold text-[#6B7280] uppercase tracking-wider">품번</th>
-                          <th className="px-6 py-4 text-xs font-bold text-[#6B7280] uppercase tracking-wider">할인율</th>
-                          <th className="px-6 py-4 text-xs font-bold text-[#6B7280] uppercase tracking-wider text-right">할인가</th>
-                          {isAdmin && <th className="px-6 py-4 text-xs font-bold text-[#6B7280] uppercase tracking-wider text-center">관리</th>}
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-[#E5E7EB]">
-                        {filteredPromotions.map(p => (
-                          <tr key={p.id} className="hover:bg-[#F9FAFB] transition-colors group">
-                            <td className="px-6 py-4 text-sm font-medium">{p.brand}</td>
-                            <td className="px-6 py-4 text-sm text-[#6B7280]">{p.orderCode}</td>
-                            <td className="px-6 py-4 text-sm font-bold">{p.productName}</td>
-                            <td className="px-6 py-4 text-sm text-[#6B7280]">{p.productNumber}</td>
-                            <td className="px-6 py-4 text-sm text-red-500 font-bold">{p.discountRate}%</td>
-                            <td className="px-6 py-4 text-sm font-bold text-right">{p.discountPrice.toLocaleString()}원</td>
+                {filePromotions.length > 0 && (
+                  <div className="space-y-4">
+                    <h3 className="text-sm font-bold text-[#6B7280] uppercase tracking-wider flex items-center gap-2">
+                      <FileUp className="w-4 h-4" /> 첨부파일 특판
+                    </h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                      {filePromotions.map(p => (
+                        <div 
+                          key={p.id}
+                          onClick={() => setViewingPromotionFile(p)}
+                          className="bg-white p-6 rounded-2xl shadow-sm border border-[#E5E7EB] hover:shadow-md transition-all group cursor-pointer relative"
+                        >
+                          <div className="flex items-center gap-4 mb-4">
+                            <div className="w-12 h-12 bg-indigo-50 rounded-xl flex items-center justify-center text-indigo-600">
+                              {p.fileName?.toLowerCase().endsWith('.pdf') ? <BookOpen className="w-6 h-6" /> : 
+                               p.fileName?.toLowerCase().endsWith('.xlsx') || p.fileName?.toLowerCase().endsWith('.xls') ? <FileSpreadsheet className="w-6 h-6" /> :
+                               <Tag className="w-6 h-6" />}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <h4 className="font-bold text-sm truncate">{p.fileName}</h4>
+                              <p className="text-[10px] text-[#9CA3AF]">{p.brand || '브랜드 미지정'}</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-between pt-4 border-t border-[#F3F4F6]">
+                            <span className="text-[10px] text-[#9CA3AF]">{format(new Date(p.createdAt), 'yyyy.MM.dd')}</span>
                             {isAdmin && (
-                              <td className="px-6 py-4 text-center">
-                                <div className="flex items-center justify-center gap-2">
-                                  <button 
-                                    onClick={() => {
-                                      setEditingPromotion(p);
-                                      setPromotionForm({
-                                        brand: p.brand,
-                                        orderCode: p.orderCode,
-                                        productName: p.productName,
-                                        productNumber: p.productNumber,
-                                        discountRate: p.discountRate,
-                                        discountPrice: p.discountPrice
-                                      });
-                                      setIsPromotionModalOpen(true);
-                                    }}
-                                    className="p-1.5 text-[#9CA3AF] hover:text-[#4F46E5] transition-colors"
-                                  >
-                                    <Plus className="w-4 h-4" />
-                                  </button>
-                                  <button 
-                                    onClick={async () => {
-                                      if (confirm('정말 삭제하시겠습니까?')) {
-                                        await deleteDoc(doc(db, 'special_promotions', p.id));
-                                      }
-                                    }}
-                                    className="p-1.5 text-[#9CA3AF] hover:text-red-500 transition-colors"
-                                  >
-                                    <Trash2 className="w-4 h-4" />
-                                  </button>
-                                </div>
-                              </td>
+                              <button 
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  if (confirm('정말 삭제하시겠습니까?')) {
+                                    await deleteDoc(doc(db, 'special_promotions', p.id));
+                                  }
+                                }}
+                                className="p-1.5 text-[#9CA3AF] hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
                             )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="space-y-4">
+                  <h3 className="text-sm font-bold text-[#6B7280] uppercase tracking-wider flex items-center gap-2">
+                    <Tag className="w-4 h-4" /> 일반 특판 정보
+                  </h3>
+                  <div className="bg-white rounded-2xl shadow-sm border border-[#E5E7EB] overflow-hidden">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="bg-[#F9FAFB] border-b border-[#E5E7EB]">
+                            <th className="px-6 py-4 text-xs font-bold text-[#6B7280] uppercase tracking-wider">브랜드</th>
+                            <th className="px-6 py-4 text-xs font-bold text-[#6B7280] uppercase tracking-wider">발주코드</th>
+                            <th className="px-6 py-4 text-xs font-bold text-[#6B7280] uppercase tracking-wider">품명</th>
+                            <th className="px-6 py-4 text-xs font-bold text-[#6B7280] uppercase tracking-wider">품번</th>
+                            <th className="px-6 py-4 text-xs font-bold text-[#6B7280] uppercase tracking-wider">할인율</th>
+                            <th className="px-6 py-4 text-xs font-bold text-[#6B7280] uppercase tracking-wider text-right">할인가</th>
+                            {isAdmin && <th className="px-6 py-4 text-xs font-bold text-[#6B7280] uppercase tracking-wider text-center">관리</th>}
                           </tr>
-                        ))}
-                        {filteredPromotions.length === 0 && (
-                          <tr>
-                            <td colSpan={isAdmin ? 7 : 6} className="px-6 py-12 text-center text-[#9CA3AF] italic">
-                              등록된 특판 정보가 없습니다.
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody className="divide-y divide-[#E5E7EB]">
+                          {manualPromotions.map(p => (
+                            <tr key={p.id} className="hover:bg-[#F9FAFB] transition-colors group">
+                              <td className="px-6 py-4 text-sm font-medium">{p.brand}</td>
+                              <td className="px-6 py-4 text-sm text-[#6B7280]">{p.orderCode}</td>
+                              <td className="px-6 py-4 text-sm font-bold">{p.productName}</td>
+                              <td className="px-6 py-4 text-sm text-[#6B7280]">{p.productNumber}</td>
+                              <td className="px-6 py-4 text-sm text-red-500 font-bold">{p.discountRate}%</td>
+                              <td className="px-6 py-4 text-sm font-bold text-right">{p.discountPrice.toLocaleString()}원</td>
+                              {isAdmin && (
+                                <td className="px-6 py-4 text-center">
+                                  <div className="flex items-center justify-center gap-2">
+                                    <button 
+                                      onClick={() => {
+                                        setEditingPromotion(p);
+                                        setPromotionForm({
+                                          brand: p.brand,
+                                          orderCode: p.orderCode,
+                                          productName: p.productName,
+                                          productNumber: p.productNumber,
+                                          discountRate: p.discountRate,
+                                          discountPrice: p.discountPrice,
+                                          file: null
+                                        });
+                                        setIsPromotionModalOpen(true);
+                                      }}
+                                      className="p-1.5 text-[#9CA3AF] hover:text-[#4F46E5] transition-colors"
+                                    >
+                                      <Plus className="w-4 h-4" />
+                                    </button>
+                                    <button 
+                                      onClick={async () => {
+                                        if (confirm('정말 삭제하시겠습니까?')) {
+                                          await deleteDoc(doc(db, 'special_promotions', p.id));
+                                        }
+                                      }}
+                                      className="p-1.5 text-[#9CA3AF] hover:text-red-500 transition-colors"
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
+                                  </div>
+                                </td>
+                              )}
+                            </tr>
+                          ))}
+                          {manualPromotions.length === 0 && (
+                            <tr>
+                              <td colSpan={isAdmin ? 7 : 6} className="px-6 py-12 text-center text-[#9CA3AF] italic">
+                                등록된 특판 정보가 없습니다.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 </div>
               </motion.div>
@@ -3323,7 +3406,6 @@ export default function App() {
                     <div className="space-y-2">
                       <label className="text-sm font-bold text-[#6B7280] uppercase tracking-wider">브랜드</label>
                       <input 
-                        required
                         type="text" 
                         value={promotionForm.brand}
                         onChange={(e) => setPromotionForm({ ...promotionForm, brand: e.target.value })}
@@ -3334,7 +3416,6 @@ export default function App() {
                     <div className="space-y-2">
                       <label className="text-sm font-bold text-[#6B7280] uppercase tracking-wider">발주코드</label>
                       <input 
-                        required
                         type="text" 
                         value={promotionForm.orderCode}
                         onChange={(e) => setPromotionForm({ ...promotionForm, orderCode: e.target.value })}
@@ -3348,7 +3429,6 @@ export default function App() {
                     <div className="space-y-2">
                       <label className="text-sm font-bold text-[#6B7280] uppercase tracking-wider">품명</label>
                       <input 
-                        required
                         type="text" 
                         value={promotionForm.productName}
                         onChange={(e) => setPromotionForm({ ...promotionForm, productName: e.target.value })}
@@ -3359,7 +3439,6 @@ export default function App() {
                     <div className="space-y-2">
                       <label className="text-sm font-bold text-[#6B7280] uppercase tracking-wider">품번</label>
                       <input 
-                        required
                         type="text" 
                         value={promotionForm.productNumber}
                         onChange={(e) => setPromotionForm({ ...promotionForm, productNumber: e.target.value })}
@@ -3373,7 +3452,6 @@ export default function App() {
                     <div className="space-y-2">
                       <label className="text-sm font-bold text-[#6B7280] uppercase tracking-wider">할인율 (%)</label>
                       <input 
-                        required
                         type="number" 
                         value={promotionForm.discountRate}
                         onChange={(e) => setPromotionForm({ ...promotionForm, discountRate: Number(e.target.value) })}
@@ -3384,13 +3462,34 @@ export default function App() {
                     <div className="space-y-2">
                       <label className="text-sm font-bold text-[#6B7280] uppercase tracking-wider">할인가 (원)</label>
                       <input 
-                        required
                         type="number" 
                         value={promotionForm.discountPrice}
                         onChange={(e) => setPromotionForm({ ...promotionForm, discountPrice: Number(e.target.value) })}
                         className="w-full px-4 py-3 bg-[#F9FAFB] border border-[#E5E7EB] rounded-2xl text-sm focus:ring-2 focus:ring-[#4F46E5] outline-none transition-all"
                         placeholder="0"
                       />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-bold text-[#6B7280] uppercase tracking-wider">첨부 파일 (Excel, JPG, PDF)</label>
+                    <div className="relative">
+                      <input 
+                        type="file" 
+                        accept=".xlsx, .xls, .jpg, .jpeg, .png, .pdf"
+                        onChange={(e) => setPromotionForm({ ...promotionForm, file: e.target.files?.[0] || null })}
+                        className="hidden"
+                        id="promotion-file"
+                      />
+                      <label 
+                        htmlFor="promotion-file"
+                        className="flex items-center justify-center gap-2 w-full px-4 py-4 bg-[#F9FAFB] border-2 border-dashed border-[#E5E7EB] rounded-2xl cursor-pointer hover:bg-indigo-50 hover:border-indigo-200 transition-all group"
+                      >
+                        <FileUp className={cn("w-5 h-5", promotionForm.file ? "text-indigo-600" : "text-[#9CA3AF]")} />
+                        <span className={cn("text-sm font-medium", promotionForm.file ? "text-indigo-600" : "text-[#9CA3AF]")}>
+                          {promotionForm.file ? promotionForm.file.name : '파일을 선택하거나 드래그하세요'}
+                        </span>
+                      </label>
                     </div>
                   </div>
 
@@ -3401,6 +3500,68 @@ export default function App() {
                     {editingPromotion ? '수정 완료' : '특판 등록하기'}
                   </button>
                 </form>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Promotion File Viewer Modal */}
+      <AnimatePresence>
+        {viewingPromotionFile && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setViewingPromotionFile(null)}
+              className="absolute inset-0 bg-[#1A1A1A]/80 backdrop-blur-md"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative bg-white w-full max-w-4xl max-h-[90vh] rounded-3xl shadow-2xl overflow-hidden flex flex-col"
+            >
+              <div className="p-6 border-b border-[#F3F4F6] flex items-center justify-between bg-white sticky top-0 z-10">
+                <div>
+                  <h2 className="text-xl font-bold text-[#111827]">{viewingPromotionFile.fileName}</h2>
+                  <p className="text-sm text-[#6B7280]">{viewingPromotionFile.brand || '브랜드 미지정'}</p>
+                </div>
+                <button 
+                  onClick={() => setViewingPromotionFile(null)}
+                  className="p-2 hover:bg-[#F3F4F6] rounded-full transition-colors"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+              <div className="flex-1 overflow-auto p-6 bg-[#F9FAFB]">
+                {viewingPromotionFile.fileUrl?.startsWith('data:image/') ? (
+                  <img 
+                    src={viewingPromotionFile.fileUrl} 
+                    alt={viewingPromotionFile.fileName}
+                    className="max-w-full h-auto mx-auto rounded-xl shadow-lg"
+                    referrerPolicy="no-referrer"
+                  />
+                ) : viewingPromotionFile.fileUrl?.startsWith('data:application/pdf') ? (
+                  <iframe 
+                    src={viewingPromotionFile.fileUrl} 
+                    className="w-full h-[70vh] rounded-xl border border-[#E5E7EB] bg-white"
+                    title={viewingPromotionFile.fileName}
+                  />
+                ) : (
+                  <div className="flex flex-col items-center justify-center py-20 text-[#9CA3AF]">
+                    <FileUp className="w-20 h-20 mb-4 opacity-20" />
+                    <p className="text-lg font-medium">이 파일 형식은 미리보기를 지원하지 않습니다.</p>
+                    <a 
+                      href={viewingPromotionFile.fileUrl} 
+                      download={viewingPromotionFile.fileName}
+                      className="mt-6 px-6 py-3 bg-[#4F46E5] text-white rounded-xl font-bold hover:bg-[#4338CA] transition-all"
+                    >
+                      파일 다운로드
+                    </a>
+                  </div>
+                )}
               </div>
             </motion.div>
           </div>
