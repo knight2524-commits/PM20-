@@ -66,8 +66,6 @@ export interface Ledger {
     '25일': boolean;
     '당월': boolean;
   };
-  checkedRows?: number[];
-  ledgerData?: any[];
   fileUrl?: string;
   fileName?: string;
   createdAt: string;
