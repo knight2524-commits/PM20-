@@ -1383,7 +1383,7 @@ export default function App() {
           />
           <SidebarItem 
             icon={<Calendar className="w-5 h-5" />} 
-            label="월간업무[공통]" 
+            label="월간업무" 
             active={activeTab === 'monthly_tasks'} 
             isOpen={isSidebarOpen}
             onClick={() => setActiveTab('monthly_tasks')}
@@ -1419,7 +1419,7 @@ export default function App() {
           </div>
           <SidebarItem 
             icon={<Package className="w-5 h-5" />} 
-            label="특판수량[할당]" 
+            label="특판수량" 
             isOpen={isSidebarOpen}
             onClick={() => window.open('https://teukpan-app.vercel.app', '_blank')}
           />
@@ -2328,7 +2328,7 @@ export default function App() {
               >
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div className="flex items-center gap-4">
-                    <h2 className="text-2xl font-bold">월간업무[공통]</h2>
+                    <h2 className="text-2xl font-bold">월간업무</h2>
                     <div className="flex bg-white border border-[#E5E7EB] rounded-lg p-1">
                       <button 
                         onClick={() => setViewMode('list')}
