@@ -53,15 +53,19 @@ export interface SpecialPromotion {
   createdAt: string;
 }
 
-export type LedgerStatusType = 'pending' | 'checked' | 'done';
-
 export interface Ledger {
   id: string;
   title: string;
   description: string;
   assigneeId: string; // Specific team member or 'all'
   assigneeName: string;
-  status: LedgerStatusType;
+  checks: {
+    '5일': boolean;
+    '10일': boolean;
+    '15일': boolean;
+    '25일': boolean;
+    '당월': boolean;
+  };
   fileUrl?: string;
   fileName?: string;
   createdAt: string;

@@ -53,7 +53,7 @@ import {
 } from 'firebase/firestore';
 import { db, auth, signInAnonymously, signOut, onAuthStateChanged } from './firebase';
 import { cn } from './lib/utils';
-import { Task, Priority, Assignee, AppNotification, Status, User, UserRole, TaskAlarm, SpecialPromotion, Ledger, LedgerStatusType } from './types';
+import { Task, Priority, Assignee, AppNotification, Status, User, UserRole, TaskAlarm, SpecialPromotion, Ledger } from './types';
 
 enum OperationType {
   CREATE = 'create',
@@ -228,8 +228,13 @@ export default function App() {
   const [isAssigneeModalOpen, setIsAssigneeModalOpen] = useState(false);
   const [isPromotionModalOpen, setIsPromotionModalOpen] = useState(false);
   const [isLedgerModalOpen, setIsLedgerModalOpen] = useState(false);
-  const [selectedLedger, setSelectedLedger] = useState<Ledger | null>(null);
+  const [selectedLedgerId, setSelectedLedgerId] = useState<string | null>(null);
+  const selectedLedger = useMemo(() => ledgers.find(l => l.id === selectedLedgerId), [ledgers, selectedLedgerId]);
   const [isLedgerDetailModalOpen, setIsLedgerDetailModalOpen] = useState(false);
+  const [ledgerFilters, setLedgerFilters] = useState({
+    paymentDate: '',
+    paymentType: ''
+  });
   const [excelData, setExcelData] = useState<any[]>([]);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [editingPromotion, setEditingPromotion] = useState<SpecialPromotion | null>(null);
@@ -314,9 +319,10 @@ export default function App() {
     } else if (selectedLedger?.fileName) {
       // Mock data for demo if file exists but URL is #
       setExcelData([
-        { '항목': '샘플 데이터 1', '수량': 10, '비고': '확인 필요' },
-        { '항목': '샘플 데이터 2', '수량': 5, '비고': '완료' },
-        { '항목': '샘플 데이터 3', '수량': 20, '비고': '진행 중' }
+        { '결제일자': '2026-04-05', '지불유형': '카드', '업체코드': 'A001', '업체명': '삼성전자' },
+        { '결제일자': '2026-04-10', '지불유형': '현금', '업체코드': 'A002', '업체명': 'LG전자' },
+        { '결제일자': '2026-04-15', '지불유형': '카드', '업체코드': 'A003', '업체명': 'SK하이닉스' },
+        { '결제일자': '2026-04-25', '지불유형': '이체', '업체코드': 'A004', '업체명': '네이버' }
       ]);
     } else {
       setExcelData([]);
@@ -669,11 +675,15 @@ export default function App() {
     });
   };
 
-  const handleSavePromotion = async () => {
+  const handleSavePromotion = async (e: React.FormEvent) => {
+    e.preventDefault();
     if (!promotionForm.brand || !promotionForm.productName) return;
     try {
       if (editingPromotion) {
-        await updateDoc(doc(db, 'special_promotions', editingPromotion.id), promotionForm);
+        await updateDoc(doc(db, 'special_promotions', editingPromotion.id), {
+          ...promotionForm,
+          updatedAt: new Date().toISOString()
+        });
       } else {
         await addDoc(collection(db, 'special_promotions'), {
           ...promotionForm,
@@ -682,20 +692,25 @@ export default function App() {
       }
       setIsPromotionModalOpen(false);
       setEditingPromotion(null);
-      setPromotionForm({ brand: '', orderCode: '', productName: '', productNumber: '', discountRate: 0, discountPrice: 0 });
+      setPromotionForm({
+        brand: '',
+        orderCode: '',
+        productName: '',
+        productNumber: '',
+        discountRate: 0,
+        discountPrice: 0
+      });
     } catch (error) {
       handleFirestoreError(error, editingPromotion ? OperationType.UPDATE : OperationType.CREATE, 'special_promotions');
     }
   };
 
-  const handleSaveLedger = async (e: React.FormEvent) => {
+   const handleSaveLedger = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!ledgerForm.title) return;
     try {
       let fileData = {};
       if (ledgerForm.file) {
-        // In a real app, you'd upload to Firebase Storage. 
-        // For this demo, we'll just store the name and a mock URL.
         fileData = {
           fileName: ledgerForm.file.name,
           fileUrl: '#' // Mock URL
@@ -718,7 +733,13 @@ export default function App() {
           ...formData,
           ...fileData,
           assigneeName: assignee?.name || '',
-          status: 'pending',
+          checks: {
+            '5일': false,
+            '10일': false,
+            '15일': false,
+            '25일': false,
+            '당월': false
+          },
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString()
         });
@@ -731,14 +752,15 @@ export default function App() {
     }
   };
 
-  const toggleLedgerStatus = async (ledger: Ledger) => {
-    const statusOrder: LedgerStatusType[] = ['pending', 'checked', 'done'];
-    const currentIndex = statusOrder.indexOf(ledger.status);
-    const nextStatus = statusOrder[(currentIndex + 1) % statusOrder.length];
-    
+  const toggleLedgerCheck = async (ledger: Ledger, checkKey: string) => {
     try {
-      await updateDoc(doc(db, 'ledgers', ledger.id), { 
-        status: nextStatus,
+      const newChecks = {
+        ...ledger.checks,
+        [checkKey]: !ledger.checks[checkKey as keyof typeof ledger.checks]
+      };
+      
+      await updateDoc(doc(db, 'ledgers', ledger.id), {
+        checks: newChecks,
         updatedAt: new Date().toISOString()
       });
     } catch (error) {
@@ -2075,95 +2097,104 @@ export default function App() {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {filteredLedgers.map(l => (
-                    <div 
-                      key={l.id} 
-                      onClick={() => {
-                        setSelectedLedger(l);
-                        setIsLedgerDetailModalOpen(true);
-                      }}
-                      className="bg-white p-6 rounded-2xl shadow-sm border border-[#E5E7EB] hover:shadow-md transition-all group cursor-pointer"
-                    >
-                      <div className="flex items-start justify-between mb-4">
-                        <div className="flex items-center gap-3">
-                          <div className={cn(
-                            "w-10 h-10 rounded-xl flex items-center justify-center transition-colors",
-                            l.status === 'done' ? 'bg-green-100 text-green-600' : 
-                            l.status === 'checked' ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-600'
-                          )}>
-                            <FileSpreadsheet className="w-5 h-5" />
+                  {filteredLedgers.map(l => {
+                    const allChecked = l.checks && Object.values(l.checks).every(v => v);
+                    
+                    return (
+                      <div 
+                        key={l.id} 
+                        onClick={() => {
+                          setSelectedLedgerId(l.id);
+                          setIsLedgerDetailModalOpen(true);
+                        }}
+                        className="bg-white p-6 rounded-2xl shadow-sm border border-[#E5E7EB] hover:shadow-md transition-all group cursor-pointer"
+                      >
+                        <div className="flex items-start justify-between mb-4">
+                          <div className="flex items-center gap-3">
+                            <div className={cn(
+                              "w-10 h-10 rounded-xl flex items-center justify-center transition-colors",
+                              allChecked ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-600'
+                            )}>
+                              <FileSpreadsheet className="w-5 h-5" />
+                            </div>
+                            <div>
+                              <h3 className="font-bold text-lg">{l.title}</h3>
+                              <p className="text-xs text-[#6B7280]">{l.assigneeName} 담당</p>
+                            </div>
                           </div>
-                          <div>
-                            <h3 className="font-bold text-lg">{l.title}</h3>
-                            <p className="text-xs text-[#6B7280]">{l.assigneeName} 담당</p>
-                          </div>
+                          {isAdmin && (
+                            <div 
+                              className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <button 
+                                onClick={() => {
+                                  setEditingLedger(l);
+                                  setLedgerForm({
+                                    title: l.title,
+                                    description: l.description,
+                                    assigneeId: l.assigneeId,
+                                    file: null
+                                  });
+                                  setIsLedgerModalOpen(true);
+                                }}
+                                className="p-1.5 text-[#9CA3AF] hover:text-[#4F46E5] transition-colors"
+                              >
+                                <Plus className="w-4 h-4" />
+                              </button>
+                              <button 
+                                onClick={async () => {
+                                  if (confirm('정말 삭제하시겠습니까?')) {
+                                    await deleteDoc(doc(db, 'ledgers', l.id));
+                                  }
+                                }}
+                                className="p-1.5 text-[#9CA3AF] hover:text-red-500 transition-all"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          )}
                         </div>
-                        {isAdmin && (
-                          <div 
-                            className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <button 
-                              onClick={() => {
-                                setEditingLedger(l);
-                                setLedgerForm({
-                                  title: l.title,
-                                  description: l.description,
-                                  assigneeId: l.assigneeId,
-                                  file: null
-                                });
-                                setIsLedgerModalOpen(true);
-                              }}
-                              className="p-1.5 text-[#9CA3AF] hover:text-[#4F46E5] transition-colors"
-                            >
-                              <Plus className="w-4 h-4" />
-                            </button>
-                            <button 
-                              onClick={async () => {
-                                if (confirm('정말 삭제하시겠습니까?')) {
-                                  await deleteDoc(doc(db, 'ledgers', l.id));
-                                }
-                              }}
-                              className="p-1.5 text-[#9CA3AF] hover:text-red-500 transition-all"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                        
+                        <p className="text-sm text-[#6B7280] line-clamp-2 mb-6">{l.description}</p>
+                        
+                        {l.fileName && (
+                          <div className="flex items-center gap-2 p-3 bg-[#F9FAFB] rounded-xl border border-[#E5E7EB] mb-6">
+                            <FileUp className="w-4 h-4 text-[#4F46E5]" />
+                            <span className="text-xs font-medium truncate flex-1">{l.fileName}</span>
                           </div>
                         )}
-                      </div>
-                      
-                      <p className="text-sm text-[#6B7280] line-clamp-2 mb-6">{l.description}</p>
-                      
-                      {l.fileName && (
-                        <div className="flex items-center gap-2 p-3 bg-[#F9FAFB] rounded-xl border border-[#E5E7EB] mb-6">
-                          <FileUp className="w-4 h-4 text-[#4F46E5]" />
-                          <span className="text-xs font-medium truncate flex-1">{l.fileName}</span>
-                          <a href={l.fileUrl} className="text-[10px] font-bold text-[#4F46E5] hover:underline">다운로드</a>
-                        </div>
-                      )}
 
-                      <div 
-                        className="flex items-center justify-between pt-4 border-t border-[#F3F4F6]"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <div className="flex items-center gap-2">
-                          <button 
-                            onClick={() => toggleLedgerStatus(l)}
-                            className={cn(
-                              "px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5",
-                              l.status === 'done' ? 'bg-green-500 text-white' : 
-                              l.status === 'checked' ? 'bg-blue-500 text-white' : 'bg-[#F3F4F6] text-[#6B7280] hover:bg-[#E5E7EB]'
+                        <div 
+                          className="flex items-center justify-between pt-4 border-t border-[#F3F4F6]"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <div className="flex items-center gap-1.5">
+                            {allChecked ? (
+                              <span className="px-3 py-1 bg-green-500 text-white text-[10px] font-bold rounded-full flex items-center gap-1">
+                                <CheckCircle className="w-3 h-3" /> 완료
+                              </span>
+                            ) : (
+                              <div className="flex gap-1">
+                                {['5일', '10일', '15일', '25일', '당월'].map((key) => (
+                                  <span 
+                                    key={key}
+                                    className={cn(
+                                      "px-1.5 py-0.5 rounded text-[8px] font-bold",
+                                      l.checks?.[key as keyof typeof l.checks] ? "bg-indigo-100 text-indigo-600" : "bg-gray-100 text-gray-400"
+                                    )}
+                                  >
+                                    {key}
+                                  </span>
+                                ))}
+                              </div>
                             )}
-                          >
-                            {l.status === 'done' ? <CheckCircle className="w-3.5 h-3.5" /> : 
-                             l.status === 'checked' ? <Clock className="w-3.5 h-3.5" /> : <Minus className="w-3.5 h-3.5" />}
-                            {l.status === 'done' ? '완료' : l.status === 'checked' ? '확인 중' : '대기'}
-                          </button>
+                          </div>
+                          <span className="text-[10px] text-[#9CA3AF]">{format(new Date(l.updatedAt), 'MM.dd HH:mm')}</span>
                         </div>
-                        <span className="text-[10px] text-[#9CA3AF]">{format(new Date(l.updatedAt), 'MM.dd HH:mm')}</span>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                   {filteredLedgers.length === 0 && (
                     <div className="col-span-full py-12 text-center bg-white rounded-2xl border border-dashed border-[#D1D5DB]">
                       <p className="text-[#9CA3AF] italic">등록된 장부 현황이 없습니다.</p>
@@ -2854,7 +2885,7 @@ export default function App() {
             <motion.div 
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              className="bg-white w-full max-w-4xl max-h-[90vh] rounded-[32px] shadow-2xl overflow-hidden flex flex-col"
+              className="bg-white w-full max-w-5xl max-h-[90vh] rounded-[32px] shadow-2xl overflow-hidden flex flex-col"
             >
               <div className="p-8 border-b border-[#F3F4F6] flex items-center justify-between bg-gradient-to-r from-indigo-50 to-white">
                 <div className="flex items-center gap-4">
@@ -2875,46 +2906,73 @@ export default function App() {
               </div>
 
               <div className="flex-1 overflow-y-auto p-8 space-y-8">
-                <div className="space-y-3">
-                  <h3 className="text-sm font-bold text-[#6B7280] uppercase tracking-wider">상세 설명</h3>
-                  <div className="p-6 bg-[#F9FAFB] rounded-2xl border border-[#E5E7EB] text-[#4B5563] leading-relaxed">
-                    {selectedLedger.description}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                  <div className="space-y-3">
+                    <h3 className="text-sm font-bold text-[#6B7280] uppercase tracking-wider">상세 설명</h3>
+                    <div className="p-6 bg-[#F9FAFB] rounded-2xl border border-[#E5E7EB] text-[#4B5563] leading-relaxed">
+                      {selectedLedger.description}
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-3">
+                    <h3 className="text-sm font-bold text-[#6B7280] uppercase tracking-wider">데이터 필터</h3>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-[#9CA3AF]">결제일자</label>
+                        <input 
+                          type="text"
+                          value={ledgerFilters.paymentDate}
+                          onChange={(e) => setLedgerFilters({ ...ledgerFilters, paymentDate: e.target.value })}
+                          placeholder="날짜 검색..."
+                          className="w-full px-4 py-2 bg-[#F9FAFB] border border-[#E5E7EB] rounded-xl text-xs focus:ring-2 focus:ring-[#4F46E5] outline-none"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-[#9CA3AF]">지불유형</label>
+                        <input 
+                          type="text"
+                          value={ledgerFilters.paymentType}
+                          onChange={(e) => setLedgerFilters({ ...ledgerFilters, paymentType: e.target.value })}
+                          placeholder="유형 검색..."
+                          className="w-full px-4 py-2 bg-[#F9FAFB] border border-[#E5E7EB] rounded-xl text-xs focus:ring-2 focus:ring-[#4F46E5] outline-none"
+                        />
+                      </div>
+                    </div>
                   </div>
                 </div>
 
                 {selectedLedger.fileName && (
                   <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <h3 className="text-sm font-bold text-[#6B7280] uppercase tracking-wider">첨부 파일 내용</h3>
-                      <a 
-                        href={selectedLedger.fileUrl} 
-                        className="text-xs font-bold text-[#4F46E5] hover:underline flex items-center gap-1"
-                      >
-                        <FileUp className="w-3 h-3" /> 원본 다운로드
-                      </a>
-                    </div>
+                    <h3 className="text-sm font-bold text-[#6B7280] uppercase tracking-wider">첨부 파일 내용 ({selectedLedger.fileName})</h3>
                     
-                    <div className="border border-[#E5E7EB] rounded-2xl overflow-hidden shadow-sm">
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-sm text-left">
-                          <thead className="bg-[#F9FAFB] border-b border-[#E5E7EB]">
+                    <div className="border border-[#E5E7EB] rounded-2xl overflow-hidden shadow-sm bg-white">
+                      <div className="overflow-x-auto max-h-[400px]">
+                        <table className="w-full text-sm text-left border-collapse">
+                          <thead className="bg-[#F9FAFB] border-b border-[#E5E7EB] sticky top-0 z-10">
                             <tr>
-                              {excelData.length > 0 && Object.keys(excelData[0]).map((key) => (
-                                <th key={key} className="px-6 py-4 font-bold text-[#374151] whitespace-nowrap">{key}</th>
+                              {['결제일자', '지불유형', '업체코드', '업체명'].map((col) => (
+                                <th key={col} className="px-6 py-4 font-bold text-[#374151] whitespace-nowrap">{col}</th>
                               ))}
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-[#F3F4F6]">
-                            {excelData.map((row, i) => (
-                              <tr key={i} className="hover:bg-[#F9FAFB] transition-colors">
-                                {Object.values(row).map((val: any, j) => (
-                                  <td key={j} className="px-6 py-4 text-[#4B5563] whitespace-nowrap">{val}</td>
-                                ))}
-                              </tr>
-                            ))}
+                            {excelData
+                              .filter(row => {
+                                const dateMatch = !ledgerFilters.paymentDate || String(row['결제일자'] || '').includes(ledgerFilters.paymentDate);
+                                const typeMatch = !ledgerFilters.paymentType || String(row['지불유형'] || '').includes(ledgerFilters.paymentType);
+                                return dateMatch && typeMatch;
+                              })
+                              .map((row, i) => (
+                                <tr key={i} className="hover:bg-[#F9FAFB] transition-colors">
+                                  <td className="px-6 py-4 text-[#4B5563] whitespace-nowrap font-medium">{row['결제일자']}</td>
+                                  <td className="px-6 py-4 text-[#4B5563] whitespace-nowrap">{row['지불유형']}</td>
+                                  <td className="px-6 py-4 text-[#4B5563] whitespace-nowrap font-mono text-xs">{row['업체코드']}</td>
+                                  <td className="px-6 py-4 text-[#4B5563] whitespace-nowrap font-bold">{row['업체명']}</td>
+                                </tr>
+                              ))}
                             {excelData.length === 0 && (
                               <tr>
-                                <td className="px-6 py-12 text-center text-[#9CA3AF] italic">파일 내용을 불러올 수 없거나 데이터가 없습니다.</td>
+                                <td colSpan={4} className="px-6 py-12 text-center text-[#9CA3AF] italic">데이터가 없습니다.</td>
                               </tr>
                             )}
                           </tbody>
@@ -2924,34 +2982,31 @@ export default function App() {
                   </div>
                 )}
 
-                <div className="flex items-center justify-between pt-4 border-t border-[#F3F4F6]">
-                  <div className="flex items-center gap-4">
-                    <span className="text-sm font-bold text-[#6B7280]">진행 상태 변경:</span>
-                    <div className="flex items-center gap-2">
-                      {(['pending', 'checked', 'done'] as LedgerStatusType[]).map((status) => (
-                        <button
-                          key={status}
-                          onClick={() => toggleLedgerStatus(selectedLedger)}
-                          className={cn(
-                            "px-4 py-2 rounded-xl text-sm font-bold transition-all flex items-center gap-2",
-                            selectedLedger.status === status 
-                              ? (status === 'done' ? 'bg-green-500 text-white shadow-lg shadow-green-100' : 
-                                 status === 'checked' ? 'bg-blue-500 text-white shadow-lg shadow-blue-100' : 
-                                 'bg-gray-500 text-white shadow-lg shadow-gray-100')
-                              : 'bg-[#F3F4F6] text-[#6B7280] hover:bg-[#E5E7EB]'
-                          )}
-                        >
-                          {status === 'done' && <CheckCircle className="w-4 h-4" />}
-                          {status === 'checked' && <Clock className="w-4 h-4" />}
-                          {status === 'pending' && <Minus className="w-4 h-4" />}
-                          {status === 'done' ? '완료' : status === 'checked' ? '확인 중' : '대기'}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-[10px] text-[#9CA3AF]">최종 업데이트</p>
-                    <p className="text-xs font-bold text-[#6B7280]">{format(new Date(selectedLedger.updatedAt), 'yyyy.MM.dd HH:mm')}</p>
+                <div className="pt-8 border-t border-[#F3F4F6]">
+                  <h3 className="text-sm font-bold text-[#6B7280] uppercase tracking-wider mb-4">진행 상태 체크</h3>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
+                    {['5일', '10일', '15일', '25일', '당월'].map((day) => (
+                      <button
+                        key={day}
+                        onClick={() => toggleLedgerCheck(selectedLedger, day)}
+                        className={cn(
+                          "p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-2 group",
+                          selectedLedger.checks?.[day as keyof typeof selectedLedger.checks]
+                            ? "bg-indigo-50 border-[#4F46E5] text-[#4F46E5] shadow-md"
+                            : "bg-white border-[#E5E7EB] text-[#9CA3AF] hover:border-[#D1D5DB]"
+                        )}
+                      >
+                        <div className={cn(
+                          "w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all",
+                          selectedLedger.checks?.[day as keyof typeof selectedLedger.checks]
+                            ? "bg-[#4F46E5] border-[#4F46E5] text-white"
+                            : "border-[#E5E7EB] group-hover:border-[#9CA3AF]"
+                        )}>
+                          {selectedLedger.checks?.[day as keyof typeof selectedLedger.checks] && <CheckCircle className="w-4 h-4" />}
+                        </div>
+                        <span className="font-bold text-sm">{day}</span>
+                      </button>
+                    ))}
                   </div>
                 </div>
               </div>

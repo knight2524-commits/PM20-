@@ -90,13 +90,22 @@
         "description": { "type": "string" },
         "assigneeId": { "type": "string" },
         "assigneeName": { "type": "string" },
-        "status": { "type": "string", "enum": ["pending", "checked", "done"] },
+        "checks": {
+          "type": "object",
+          "properties": {
+            "5일": { "type": "boolean" },
+            "10일": { "type": "boolean" },
+            "15일": { "type": "boolean" },
+            "25일": { "type": "boolean" },
+            "당월": { "type": "boolean" }
+          }
+        },
         "fileUrl": { "type": "string" },
         "fileName": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["title", "assigneeId", "status", "createdAt"]
+      "required": ["title", "assigneeId", "checks", "createdAt"]
     }
   },
   "firestore": {
