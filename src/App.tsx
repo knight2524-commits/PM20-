@@ -2951,12 +2951,12 @@ export default function App() {
                     <h3 className="text-sm font-bold text-[#6B7280] uppercase tracking-wider">첨부 파일 내용 ({selectedLedger.fileName})</h3>
                     
                     <div className="border border-[#E5E7EB] rounded-2xl overflow-hidden shadow-sm bg-white">
-                      <div className="overflow-x-auto max-h-[400px]">
+                      <div className="overflow-x-auto">
                         <table className="w-full text-sm text-left border-collapse">
-                          <thead className="bg-[#556B2F] border-b border-[#E5E7EB] sticky top-0 z-10">
+                          <thead className="bg-[#EEF2FF] border-b border-[#E0E7FF] sticky top-0 z-10">
                             <tr>
                               {['업체코드', '업체명', '결제일자', '지불유형', '비고'].map((col) => (
-                                <th key={col} className="px-6 py-4 font-bold text-white whitespace-nowrap text-center">{col}</th>
+                                <th key={col} className="px-6 py-4 font-bold text-[#4338CA] whitespace-nowrap text-center">{col}</th>
                               ))}
                             </tr>
                           </thead>
@@ -2974,10 +2974,15 @@ export default function App() {
                                     <td className="px-6 py-4 text-[#4B5563] whitespace-nowrap font-mono text-xs">{row['업체코드']}</td>
                                     <td className="px-6 py-4 text-[#4B5563] whitespace-nowrap font-bold text-blue-600">{row['업체명']}</td>
                                     <td className={cn(
-                                      "px-6 py-4 whitespace-nowrap font-medium flex items-center justify-center gap-2",
-                                      isChecked ? "text-green-600" : "text-[#4B5563]"
+                                      "px-6 py-4 whitespace-nowrap font-bold flex items-center justify-center gap-2",
+                                      isChecked ? "text-green-600" : "text-red-500"
                                     )}>
-                                      {isChecked && <CheckCircle className="w-4 h-4" />}
+                                      <div className={cn(
+                                        "w-4 h-4 rounded-md flex items-center justify-center border transition-all",
+                                        isChecked ? "bg-green-500 border-green-500 text-white" : "bg-white border-red-300 text-red-500"
+                                      )}>
+                                        {isChecked ? <CheckCircle className="w-3 h-3" /> : <X className="w-3 h-3" />}
+                                      </div>
                                       {row['결제일자']}
                                     </td>
                                     <td className="px-6 py-4 text-[#4B5563] whitespace-nowrap">{row['지불유형']}</td>
