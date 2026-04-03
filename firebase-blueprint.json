@@ -95,11 +95,12 @@
           "properties": {
             "5일": { "type": "boolean" },
             "10일": { "type": "boolean" },
-            "15일": { "type": "boolean" },
+            "20일": { "type": "boolean" },
             "25일": { "type": "boolean" },
             "당월": { "type": "boolean" }
           }
         },
+        "checkedRows": { "type": "array", "items": { "type": "integer" } },
         "fileUrl": { "type": "string" },
         "fileName": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" },
