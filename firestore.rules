@@ -55,6 +55,17 @@ service cloud.firestore {
     }
 
     // Rules
+    match /special_promotions/{promotionId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    match /ledgers/{ledgerId} {
+      allow read: if isAuthenticated();
+      allow create, delete: if isAdmin();
+      allow update: if isAuthenticated();
+    }
+
     match /tasks/{taskId} {
       allow read: if isAuthenticated();
       allow create, update: if isAuthenticated() && isValidTask(request.resource.data);

@@ -28,7 +28,11 @@ import {
   Users,
   CheckCircle,
   Trash2,
-  UserPlus
+  UserPlus,
+  Tag,
+  BookOpen,
+  FileSpreadsheet,
+  FileUp
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { format } from 'date-fns';
@@ -48,7 +52,7 @@ import {
 } from 'firebase/firestore';
 import { db, auth, signInAnonymously, signOut, onAuthStateChanged } from './firebase';
 import { cn } from './lib/utils';
-import { Task, Priority, Assignee, AppNotification, Status, User, UserRole, TaskAlarm } from './types';
+import { Task, Priority, Assignee, AppNotification, Status, User, UserRole, TaskAlarm, SpecialPromotion, Ledger, LedgerStatusType } from './types';
 
 enum OperationType {
   CREATE = 'create',
@@ -202,8 +206,10 @@ export default function App() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [assignees, setAssignees] = useState<Assignee[]>([]);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [promotions, setPromotions] = useState<SpecialPromotion[]>([]);
+  const [ledgers, setLedgers] = useState<Ledger[]>([]);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'tasks' | 'team' | 'settings'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'tasks' | 'promotions' | 'ledgers' | 'team' | 'settings'>('dashboard');
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState<'list' | 'board'>('list');
   const [filters, setFilters] = useState<{
@@ -219,7 +225,11 @@ export default function App() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
   const [isAssigneeModalOpen, setIsAssigneeModalOpen] = useState(false);
+  const [isPromotionModalOpen, setIsPromotionModalOpen] = useState(false);
+  const [isLedgerModalOpen, setIsLedgerModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
+  const [editingPromotion, setEditingPromotion] = useState<SpecialPromotion | null>(null);
+  const [editingLedger, setEditingLedger] = useState<Ledger | null>(null);
   const [selectedStat, setSelectedStat] = useState<Status | 'all' | null>(null);
   const [selectedCalendarDate, setSelectedCalendarDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
   const [deleteConfirmation, setDeleteConfirmation] = useState<{
@@ -234,6 +244,22 @@ export default function App() {
     assigneeName: string;
     note: string;
   }>({ isOpen: false, assigneeId: '', assigneeName: '', note: '' });
+  
+  const [promotionForm, setPromotionForm] = useState({
+    brand: '',
+    orderCode: '',
+    productName: '',
+    productNumber: '',
+    discountRate: 0,
+    discountPrice: 0
+  });
+
+  const [ledgerForm, setLedgerForm] = useState({
+    title: '',
+    description: '',
+    assigneeId: 'all'
+  });
+
   const [confirmReset, setConfirmReset] = useState(false);
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
     const saved = localStorage.getItem('taskflow_user');
@@ -300,6 +326,26 @@ export default function App() {
       const notificationsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as AppNotification));
       setNotifications(notificationsData);
     }, (error) => handleFirestoreError(error, OperationType.LIST, 'notifications'));
+    return () => unsubscribe();
+  }, [currentUser]);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    const q = query(collection(db, 'special_promotions'), orderBy('createdAt', 'desc'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as SpecialPromotion));
+      setPromotions(data);
+    }, (error) => handleFirestoreError(error, OperationType.LIST, 'special_promotions'));
+    return () => unsubscribe();
+  }, [currentUser]);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    const q = query(collection(db, 'ledgers'), orderBy('createdAt', 'desc'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Ledger));
+      setLedgers(data);
+    }, (error) => handleFirestoreError(error, OperationType.LIST, 'ledgers'));
     return () => unsubscribe();
   }, [currentUser]);
 
@@ -457,6 +503,30 @@ export default function App() {
     });
   }, [tasks, searchQuery, filters, isAdmin, currentUser]);
 
+  const filteredPromotions = useMemo(() => {
+    return promotions.filter(p => {
+      const search = searchQuery.toLowerCase();
+      return p.brand.toLowerCase().includes(search) || 
+             p.productName.toLowerCase().includes(search) || 
+             p.productNumber.toLowerCase().includes(search) || 
+             p.orderCode.toLowerCase().includes(search);
+    });
+  }, [promotions, searchQuery]);
+
+  const filteredLedgers = useMemo(() => {
+    let base = ledgers;
+    if (!isAdmin && currentUser) {
+      base = base.filter(l => l.assigneeId === 'all' || l.assigneeId === currentUser.id);
+    }
+    return base.filter(l => {
+      const search = searchQuery.toLowerCase();
+      const matchesSearch = l.title.toLowerCase().includes(search) || 
+                          l.description.toLowerCase().includes(search);
+      const matchesAssignee = filters.assigneeId === 'all' || l.assigneeId === filters.assigneeId;
+      return matchesSearch && matchesAssignee;
+    });
+  }, [ledgers, searchQuery, filters, isAdmin, currentUser]);
+
   const stats = useMemo(() => {
     const baseTasks = isAdmin ? tasks : tasks.filter(t => t.assigneeIds?.includes(currentUser?.id || ''));
     const total = baseTasks.length;
@@ -562,6 +632,80 @@ export default function App() {
       alarm1Settings: { hour: 0, minute: 0 },
       alarm2Settings: { hour: 0, minute: 0 }
     });
+  };
+
+  const handleSavePromotion = async () => {
+    if (!promotionForm.brand || !promotionForm.productName) return;
+    try {
+      if (editingPromotion) {
+        await updateDoc(doc(db, 'special_promotions', editingPromotion.id), promotionForm);
+      } else {
+        await addDoc(collection(db, 'special_promotions'), {
+          ...promotionForm,
+          createdAt: new Date().toISOString()
+        });
+      }
+      setIsPromotionModalOpen(false);
+      setEditingPromotion(null);
+      setPromotionForm({ brand: '', orderCode: '', productName: '', productNumber: '', discountRate: 0, discountPrice: 0 });
+    } catch (error) {
+      handleFirestoreError(error, editingPromotion ? OperationType.UPDATE : OperationType.CREATE, 'special_promotions');
+    }
+  };
+
+  const handleSaveLedger = async (file?: File) => {
+    if (!ledgerForm.title) return;
+    try {
+      let fileData = {};
+      if (file) {
+        // In a real app, you'd upload to Firebase Storage. 
+        // For this demo, we'll just store the name and a mock URL.
+        fileData = {
+          fileName: file.name,
+          fileUrl: '#' // Mock URL
+        };
+      }
+
+      const assignee = ledgerForm.assigneeId === 'all' ? { id: 'all', name: '전체' } : assignees.find(a => a.id === ledgerForm.assigneeId);
+
+      if (editingLedger) {
+        await updateDoc(doc(db, 'ledgers', editingLedger.id), {
+          ...ledgerForm,
+          ...fileData,
+          assigneeName: assignee?.name || '',
+          updatedAt: new Date().toISOString()
+        });
+      } else {
+        await addDoc(collection(db, 'ledgers'), {
+          ...ledgerForm,
+          ...fileData,
+          assigneeName: assignee?.name || '',
+          status: 'pending',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        });
+      }
+      setIsLedgerModalOpen(false);
+      setEditingLedger(null);
+      setLedgerForm({ title: '', description: '', assigneeId: 'all' });
+    } catch (error) {
+      handleFirestoreError(error, editingLedger ? OperationType.UPDATE : OperationType.CREATE, 'ledgers');
+    }
+  };
+
+  const toggleLedgerStatus = async (ledger: Ledger) => {
+    const statusOrder: LedgerStatusType[] = ['pending', 'checked', 'done'];
+    const currentIndex = statusOrder.indexOf(ledger.status);
+    const nextStatus = statusOrder[(currentIndex + 1) % statusOrder.length];
+    
+    try {
+      await updateDoc(doc(db, 'ledgers', ledger.id), { 
+        status: nextStatus,
+        updatedAt: new Date().toISOString()
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, 'ledgers');
+    }
   };
 
   const handleDeleteTask = (id: string) => {
@@ -971,6 +1115,20 @@ export default function App() {
             active={activeTab === 'tasks'} 
             isOpen={isSidebarOpen}
             onClick={() => setActiveTab('tasks')}
+          />
+          <SidebarItem 
+            icon={<Tag className="w-5 h-5" />} 
+            label="특판 안내" 
+            active={activeTab === 'promotions'} 
+            isOpen={isSidebarOpen}
+            onClick={() => setActiveTab('promotions')}
+          />
+          <SidebarItem 
+            icon={<BookOpen className="w-5 h-5" />} 
+            label="장부 현황" 
+            active={activeTab === 'ledgers'} 
+            isOpen={isSidebarOpen}
+            onClick={() => setActiveTab('ledgers')}
           />
           <SidebarItem 
             icon={<Users className="w-5 h-5" />} 
@@ -1758,6 +1916,195 @@ export default function App() {
               </motion.div>
             )}
 
+            {activeTab === 'promotions' && (
+              <motion.div 
+                key="promotions"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                className="space-y-6"
+              >
+                <div className="flex items-center justify-between">
+                  <h2 className="text-2xl font-bold">특판 안내</h2>
+                  {isAdmin && (
+                    <button 
+                      onClick={() => {
+                        setEditingPromotion(null);
+                        setPromotionForm({ brand: '', orderCode: '', productName: '', productNumber: '', discountRate: 0, discountPrice: 0 });
+                        setIsPromotionModalOpen(true);
+                      }}
+                      className="flex items-center gap-2 px-4 py-2 bg-[#4F46E5] text-white rounded-xl font-semibold hover:bg-[#4338CA] transition-all"
+                    >
+                      <Plus className="w-4 h-4" /> 특판 추가
+                    </button>
+                  )}
+                </div>
+
+                <div className="bg-white rounded-2xl shadow-sm border border-[#E5E7EB] overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-[#F9FAFB] border-b border-[#E5E7EB]">
+                          <th className="px-6 py-4 text-xs font-bold text-[#6B7280] uppercase tracking-wider">브랜드</th>
+                          <th className="px-6 py-4 text-xs font-bold text-[#6B7280] uppercase tracking-wider">발주코드</th>
+                          <th className="px-6 py-4 text-xs font-bold text-[#6B7280] uppercase tracking-wider">품명</th>
+                          <th className="px-6 py-4 text-xs font-bold text-[#6B7280] uppercase tracking-wider">품번</th>
+                          <th className="px-6 py-4 text-xs font-bold text-[#6B7280] uppercase tracking-wider">할인율</th>
+                          <th className="px-6 py-4 text-xs font-bold text-[#6B7280] uppercase tracking-wider text-right">할인가</th>
+                          {isAdmin && <th className="px-6 py-4 text-xs font-bold text-[#6B7280] uppercase tracking-wider text-center">관리</th>}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#E5E7EB]">
+                        {filteredPromotions.map(p => (
+                          <tr key={p.id} className="hover:bg-[#F9FAFB] transition-colors group">
+                            <td className="px-6 py-4 text-sm font-medium">{p.brand}</td>
+                            <td className="px-6 py-4 text-sm text-[#6B7280]">{p.orderCode}</td>
+                            <td className="px-6 py-4 text-sm font-bold">{p.productName}</td>
+                            <td className="px-6 py-4 text-sm text-[#6B7280]">{p.productNumber}</td>
+                            <td className="px-6 py-4 text-sm text-red-500 font-bold">{p.discountRate}%</td>
+                            <td className="px-6 py-4 text-sm font-bold text-right">{p.discountPrice.toLocaleString()}원</td>
+                            {isAdmin && (
+                              <td className="px-6 py-4 text-center">
+                                <div className="flex items-center justify-center gap-2">
+                                  <button 
+                                    onClick={() => {
+                                      setEditingPromotion(p);
+                                      setPromotionForm({
+                                        brand: p.brand,
+                                        orderCode: p.orderCode,
+                                        productName: p.productName,
+                                        productNumber: p.productNumber,
+                                        discountRate: p.discountRate,
+                                        discountPrice: p.discountPrice
+                                      });
+                                      setIsPromotionModalOpen(true);
+                                    }}
+                                    className="p-1.5 text-[#9CA3AF] hover:text-[#4F46E5] transition-colors"
+                                  >
+                                    <Plus className="w-4 h-4" />
+                                  </button>
+                                  <button 
+                                    onClick={async () => {
+                                      if (confirm('정말 삭제하시겠습니까?')) {
+                                        await deleteDoc(doc(db, 'special_promotions', p.id));
+                                      }
+                                    }}
+                                    className="p-1.5 text-[#9CA3AF] hover:text-red-500 transition-colors"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              </td>
+                            )}
+                          </tr>
+                        ))}
+                        {filteredPromotions.length === 0 && (
+                          <tr>
+                            <td colSpan={isAdmin ? 7 : 6} className="px-6 py-12 text-center text-[#9CA3AF] italic">
+                              등록된 특판 정보가 없습니다.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+
+            {activeTab === 'ledgers' && (
+              <motion.div 
+                key="ledgers"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                className="space-y-6"
+              >
+                <div className="flex items-center justify-between">
+                  <h2 className="text-2xl font-bold">장부 현황</h2>
+                  {isAdmin && (
+                    <button 
+                      onClick={() => {
+                        setEditingLedger(null);
+                        setLedgerForm({ title: '', description: '', assigneeId: 'all' });
+                        setIsLedgerModalOpen(true);
+                      }}
+                      className="flex items-center gap-2 px-4 py-2 bg-[#4F46E5] text-white rounded-xl font-semibold hover:bg-[#4338CA] transition-all"
+                    >
+                      <Plus className="w-4 h-4" /> 장부 추가
+                    </button>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {filteredLedgers.map(l => (
+                    <div key={l.id} className="bg-white p-6 rounded-2xl shadow-sm border border-[#E5E7EB] hover:shadow-md transition-all group">
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="flex items-center gap-3">
+                          <div className={cn(
+                            "w-10 h-10 rounded-xl flex items-center justify-center transition-colors",
+                            l.status === 'done' ? 'bg-green-100 text-green-600' : 
+                            l.status === 'checked' ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-600'
+                          )}>
+                            <FileSpreadsheet className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <h3 className="font-bold text-lg">{l.title}</h3>
+                            <p className="text-xs text-[#6B7280]">{l.assigneeName} 담당</p>
+                          </div>
+                        </div>
+                        {isAdmin && (
+                          <button 
+                            onClick={async () => {
+                              if (confirm('정말 삭제하시겠습니까?')) {
+                                await deleteDoc(doc(db, 'ledgers', l.id));
+                              }
+                            }}
+                            className="p-1.5 text-[#9CA3AF] hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                      
+                      <p className="text-sm text-[#6B7280] line-clamp-2 mb-6">{l.description}</p>
+                      
+                      {l.fileName && (
+                        <div className="flex items-center gap-2 p-3 bg-[#F9FAFB] rounded-xl border border-[#E5E7EB] mb-6">
+                          <FileUp className="w-4 h-4 text-[#4F46E5]" />
+                          <span className="text-xs font-medium truncate flex-1">{l.fileName}</span>
+                          <a href={l.fileUrl} className="text-[10px] font-bold text-[#4F46E5] hover:underline">다운로드</a>
+                        </div>
+                      )}
+
+                      <div className="flex items-center justify-between pt-4 border-t border-[#F3F4F6]">
+                        <div className="flex items-center gap-2">
+                          <button 
+                            onClick={() => toggleLedgerStatus(l)}
+                            className={cn(
+                              "px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5",
+                              l.status === 'done' ? 'bg-green-500 text-white' : 
+                              l.status === 'checked' ? 'bg-blue-500 text-white' : 'bg-[#F3F4F6] text-[#6B7280] hover:bg-[#E5E7EB]'
+                            )}
+                          >
+                            {l.status === 'done' ? <CheckCircle className="w-3.5 h-3.5" /> : 
+                             l.status === 'checked' ? <Clock className="w-3.5 h-3.5" /> : <Minus className="w-3.5 h-3.5" />}
+                            {l.status === 'done' ? '완료' : l.status === 'checked' ? '확인 중' : '대기'}
+                          </button>
+                        </div>
+                        <span className="text-[10px] text-[#9CA3AF]">{format(new Date(l.updatedAt), 'MM.dd HH:mm')}</span>
+                      </div>
+                    </div>
+                  ))}
+                  {filteredLedgers.length === 0 && (
+                    <div className="col-span-full py-12 text-center bg-white rounded-2xl border border-dashed border-[#D1D5DB]">
+                      <p className="text-[#9CA3AF] italic">등록된 장부 현황이 없습니다.</p>
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            )}
+
             {activeTab === 'settings' && (
               <motion.div 
                 key="settings"
@@ -2221,6 +2568,219 @@ export default function App() {
           </div>
         )}
       </AnimatePresence>
+
+      {/* Promotion Modal */}
+      <AnimatePresence>
+        {isPromotionModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsPromotionModalOpen(false)}
+              className="absolute inset-0 bg-[#1A1A1A]/60 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden"
+            >
+              <div className="p-8">
+                <div className="flex items-center justify-between mb-8">
+                  <h2 className="text-2xl font-bold">{editingPromotion ? '특판 수정' : '새 특판 등록'}</h2>
+                  <button onClick={() => setIsPromotionModalOpen(false)} className="p-2 hover:bg-[#F3F4F6] rounded-full transition-colors">
+                    <X className="w-6 h-6" />
+                  </button>
+                </div>
+
+                <form onSubmit={handleSavePromotion} className="space-y-6">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-sm font-bold text-[#6B7280] uppercase tracking-wider">브랜드</label>
+                      <input 
+                        required
+                        type="text" 
+                        value={promotionForm.brand}
+                        onChange={(e) => setPromotionForm({ ...promotionForm, brand: e.target.value })}
+                        className="w-full px-4 py-3 bg-[#F9FAFB] border border-[#E5E7EB] rounded-2xl text-sm focus:ring-2 focus:ring-[#4F46E5] outline-none transition-all"
+                        placeholder="브랜드명"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-bold text-[#6B7280] uppercase tracking-wider">발주코드</label>
+                      <input 
+                        required
+                        type="text" 
+                        value={promotionForm.orderCode}
+                        onChange={(e) => setPromotionForm({ ...promotionForm, orderCode: e.target.value })}
+                        className="w-full px-4 py-3 bg-[#F9FAFB] border border-[#E5E7EB] rounded-2xl text-sm focus:ring-2 focus:ring-[#4F46E5] outline-none transition-all"
+                        placeholder="발주코드"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-sm font-bold text-[#6B7280] uppercase tracking-wider">품명</label>
+                      <input 
+                        required
+                        type="text" 
+                        value={promotionForm.productName}
+                        onChange={(e) => setPromotionForm({ ...promotionForm, productName: e.target.value })}
+                        className="w-full px-4 py-3 bg-[#F9FAFB] border border-[#E5E7EB] rounded-2xl text-sm focus:ring-2 focus:ring-[#4F46E5] outline-none transition-all"
+                        placeholder="제품명"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-bold text-[#6B7280] uppercase tracking-wider">품번</label>
+                      <input 
+                        required
+                        type="text" 
+                        value={promotionForm.productNumber}
+                        onChange={(e) => setPromotionForm({ ...promotionForm, productNumber: e.target.value })}
+                        className="w-full px-4 py-3 bg-[#F9FAFB] border border-[#E5E7EB] rounded-2xl text-sm focus:ring-2 focus:ring-[#4F46E5] outline-none transition-all"
+                        placeholder="제품번호"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-sm font-bold text-[#6B7280] uppercase tracking-wider">할인율 (%)</label>
+                      <input 
+                        required
+                        type="number" 
+                        value={promotionForm.discountRate}
+                        onChange={(e) => setPromotionForm({ ...promotionForm, discountRate: Number(e.target.value) })}
+                        className="w-full px-4 py-3 bg-[#F9FAFB] border border-[#E5E7EB] rounded-2xl text-sm focus:ring-2 focus:ring-[#4F46E5] outline-none transition-all"
+                        placeholder="0"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-bold text-[#6B7280] uppercase tracking-wider">할인가 (원)</label>
+                      <input 
+                        required
+                        type="number" 
+                        value={promotionForm.discountPrice}
+                        onChange={(e) => setPromotionForm({ ...promotionForm, discountPrice: Number(e.target.value) })}
+                        className="w-full px-4 py-3 bg-[#F9FAFB] border border-[#E5E7EB] rounded-2xl text-sm focus:ring-2 focus:ring-[#4F46E5] outline-none transition-all"
+                        placeholder="0"
+                      />
+                    </div>
+                  </div>
+
+                  <button 
+                    type="submit"
+                    className="w-full py-4 bg-[#4F46E5] text-white rounded-2xl font-bold text-lg shadow-xl shadow-indigo-100 hover:bg-[#4338CA] transition-all active:scale-[0.98] mt-4"
+                  >
+                    {editingPromotion ? '수정 완료' : '특판 등록하기'}
+                  </button>
+                </form>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Ledger Modal */}
+      <AnimatePresence>
+        {isLedgerModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsLedgerModalOpen(false)}
+              className="absolute inset-0 bg-[#1A1A1A]/60 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden"
+            >
+              <div className="p-8">
+                <div className="flex items-center justify-between mb-8">
+                  <h2 className="text-2xl font-bold">{editingLedger ? '장부 수정' : '새 장부 등록'}</h2>
+                  <button onClick={() => setIsLedgerModalOpen(false)} className="p-2 hover:bg-[#F3F4F6] rounded-full transition-colors">
+                    <X className="w-6 h-6" />
+                  </button>
+                </div>
+
+                <form onSubmit={handleSaveLedger} className="space-y-6">
+                  <div className="space-y-2">
+                    <label className="text-sm font-bold text-[#6B7280] uppercase tracking-wider">제목</label>
+                    <input 
+                      required
+                      type="text" 
+                      value={ledgerForm.title}
+                      onChange={(e) => setLedgerForm({ ...ledgerForm, title: e.target.value })}
+                      className="w-full px-4 py-3 bg-[#F9FAFB] border border-[#E5E7EB] rounded-2xl text-sm focus:ring-2 focus:ring-[#4F46E5] outline-none transition-all"
+                      placeholder="장부 제목"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-bold text-[#6B7280] uppercase tracking-wider">설명</label>
+                    <textarea 
+                      required
+                      value={ledgerForm.description}
+                      onChange={(e) => setLedgerForm({ ...ledgerForm, description: e.target.value })}
+                      className="w-full px-4 py-3 bg-[#F9FAFB] border border-[#E5E7EB] rounded-2xl text-sm focus:ring-2 focus:ring-[#4F46E5] outline-none transition-all min-h-[100px] resize-none"
+                      placeholder="상세 설명"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-bold text-[#6B7280] uppercase tracking-wider">담당자</label>
+                    <select 
+                      required
+                      value={ledgerForm.assigneeId}
+                      onChange={(e) => setLedgerForm({ ...ledgerForm, assigneeId: e.target.value })}
+                      className="w-full px-4 py-3 bg-[#F9FAFB] border border-[#E5E7EB] rounded-2xl text-sm focus:ring-2 focus:ring-[#4F46E5] outline-none transition-all"
+                    >
+                      <option value="all">전체</option>
+                      {assignees.map(a => (
+                        <option key={a.id} value={a.id}>{a.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-bold text-[#6B7280] uppercase tracking-wider">파일 첨부 (Excel)</label>
+                    <div className="relative group">
+                      <input 
+                        type="file" 
+                        accept=".xlsx, .xls, .csv"
+                        onChange={(e) => setLedgerForm({ ...ledgerForm, file: e.target.files?.[0] })}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                      />
+                      <div className="flex items-center gap-3 px-4 py-4 bg-[#F9FAFB] border-2 border-dashed border-[#E5E7EB] rounded-2xl group-hover:border-[#4F46E5] transition-all">
+                        <div className="w-10 h-10 bg-white rounded-xl shadow-sm flex items-center justify-center text-[#4F46E5]">
+                          <FileUp className="w-5 h-5" />
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-sm font-bold text-[#1A1A1A]">{ledgerForm.file?.name || '파일을 선택하거나 드래그하세요'}</p>
+                          <p className="text-[10px] text-[#6B7280]">Excel, CSV 파일 지원 (최대 10MB)</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <button 
+                    type="submit"
+                    className="w-full py-4 bg-[#4F46E5] text-white rounded-2xl font-bold text-lg shadow-xl shadow-indigo-100 hover:bg-[#4338CA] transition-all active:scale-[0.98] mt-4"
+                  >
+                    {editingLedger ? '수정 완료' : '장부 등록하기'}
+                  </button>
+                </form>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
     </div>
   );
 }

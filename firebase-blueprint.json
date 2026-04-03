@@ -66,8 +66,48 @@
       },
       "required": ["title", "message", "timestamp", "read"]
     }
+    "SpecialPromotion": {
+      "title": "SpecialPromotion",
+      "description": "Special promotion information.",
+      "type": "object",
+      "properties": {
+        "brand": { "type": "string" },
+        "orderCode": { "type": "string" },
+        "productName": { "type": "string" },
+        "productNumber": { "type": "string" },
+        "discountRate": { "type": "number" },
+        "discountPrice": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["brand", "productName", "discountPrice", "createdAt"]
+    },
+    "Ledger": {
+      "title": "Ledger",
+      "description": "Ledger status for team members.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "assigneeId": { "type": "string" },
+        "assigneeName": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "checked", "done"] },
+        "fileUrl": { "type": "string" },
+        "fileName": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "assigneeId", "status", "createdAt"]
+    }
   },
   "firestore": {
+    "/special_promotions/{promotionId}": {
+      "schema": "SpecialPromotion",
+      "description": "Collection of special promotions."
+    },
+    "/ledgers/{ledgerId}": {
+      "schema": "Ledger",
+      "description": "Collection of ledger status entries."
+    },
     "/tasks/{taskId}": {
       "schema": "Task",
       "description": "Collection of all tasks."

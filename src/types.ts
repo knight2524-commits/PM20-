@@ -42,6 +42,32 @@ export interface Task {
   isNew?: boolean;
 }
 
+export interface SpecialPromotion {
+  id: string;
+  brand: string;
+  orderCode: string;
+  productName: string;
+  productNumber: string;
+  discountRate: number;
+  discountPrice: number;
+  createdAt: string;
+}
+
+export type LedgerStatusType = 'pending' | 'checked' | 'done';
+
+export interface Ledger {
+  id: string;
+  title: string;
+  description: string;
+  assigneeId: string; // Specific team member or 'all'
+  assigneeName: string;
+  status: LedgerStatusType;
+  fileUrl?: string;
+  fileName?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface AppNotification {
   id: string;
   title: string;
