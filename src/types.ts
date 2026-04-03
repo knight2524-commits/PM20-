@@ -40,6 +40,9 @@ export interface Task {
   alarm1Settings?: { hour: number; minute: number };
   alarm2Settings?: { hour: number; minute: number };
   isNew?: boolean;
+  isMonthly?: boolean; // Flag for monthly tasks
+  repeatMonthly?: boolean; // Repeat every month
+  alarmTime?: string; // Selected time for monthly task alarm
 }
 
 export interface SpecialPromotion {
@@ -50,7 +53,25 @@ export interface SpecialPromotion {
   productNumber: string;
   discountRate: number;
   discountPrice: number;
+  description?: string;
+  assigneeId?: string;
+  assigneeName?: string;
+  status?: Status;
+  fileUrl?: string;
+  fileName?: string;
+  promotionData?: any[];
   createdAt: string;
+  updatedAt?: string;
+}
+
+export interface CompetitivePrice {
+  id: string;
+  brand: string;
+  memo: string;
+  createdAt: string;
+  updatedAt: string;
+  authorId: string;
+  authorName: string;
 }
 
 export interface Ledger {
@@ -59,14 +80,6 @@ export interface Ledger {
   description: string;
   assigneeId: string; // Specific team member or 'all'
   assigneeName: string;
-  checks: {
-    '5일': boolean;
-    '10일': boolean;
-    '20일': boolean;
-    '25일': boolean;
-    '당월': boolean;
-  };
-  checkedRows?: number[];
   ledgerData?: any[];
   status?: 'todo' | 'in-progress' | 'done';
   fileUrl?: string;

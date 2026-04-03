@@ -32,7 +32,9 @@ import {
   Tag,
   BookOpen,
   FileSpreadsheet,
-  FileUp
+  FileUp,
+  Package,
+  Shield
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { format } from 'date-fns';
@@ -54,7 +56,7 @@ import {
 } from 'firebase/firestore';
 import { db, auth, signInAnonymously, signOut, onAuthStateChanged } from './firebase';
 import { cn } from './lib/utils';
-import { Task, Priority, Assignee, AppNotification, Status, User, UserRole, TaskAlarm, SpecialPromotion, Ledger } from './types';
+import { Task, Priority, Assignee, AppNotification, Status, User, UserRole, TaskAlarm, SpecialPromotion, Ledger, CompetitivePrice } from './types';
 
 enum OperationType {
   CREATE = 'create',
@@ -210,8 +212,9 @@ export default function App() {
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [promotions, setPromotions] = useState<SpecialPromotion[]>([]);
   const [ledgers, setLedgers] = useState<Ledger[]>([]);
+  const [competitivePrices, setCompetitivePrices] = useState<CompetitivePrice[]>([]);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'tasks' | 'promotions' | 'ledgers' | 'team' | 'settings'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'monthly_tasks' | 'tasks' | 'promotions' | 'competitive_prices' | 'ledgers' | 'team' | 'settings'>('dashboard');
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState<'list' | 'board'>('list');
   const [filters, setFilters] = useState<{
@@ -232,6 +235,12 @@ export default function App() {
   const [selectedLedgerId, setSelectedLedgerId] = useState<string | null>(null);
   const selectedLedger = useMemo(() => ledgers.find(l => l.id === selectedLedgerId), [ledgers, selectedLedgerId]);
   const [isLedgerDetailModalOpen, setIsLedgerDetailModalOpen] = useState(false);
+  const [isCompetitivePriceModalOpen, setIsCompetitivePriceModalOpen] = useState(false);
+  const [editingCompetitivePrice, setEditingCompetitivePrice] = useState<CompetitivePrice | null>(null);
+  const [competitivePriceForm, setCompetitivePriceForm] = useState({
+    brand: '',
+    memo: ''
+  });
   const [ledgerFilters, setLedgerFilters] = useState({
     paymentDate: '',
     paymentType: ''
@@ -244,7 +253,7 @@ export default function App() {
   const [selectedCalendarDate, setSelectedCalendarDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
   const [deleteConfirmation, setDeleteConfirmation] = useState<{
     isOpen: boolean;
-    type: 'task' | 'assignee' | 'reset';
+    type: 'task' | 'assignee' | 'reset' | 'promotion' | 'competitive_price' | 'ledger';
     id?: string;
     title?: string;
   }>({ isOpen: false, type: 'task' });
@@ -411,6 +420,16 @@ export default function App() {
     return () => unsubscribe();
   }, [currentUser]);
 
+  useEffect(() => {
+    if (!currentUser) return;
+    const q = query(collection(db, 'competitive_prices'), orderBy('createdAt', 'desc'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as CompetitivePrice));
+      setCompetitivePrices(data);
+    }, (error) => handleFirestoreError(error, OperationType.LIST, 'competitive_prices'));
+    return () => unsubscribe();
+  }, [currentUser]);
+
   // Persistence for user only
   useEffect(() => {
     if (currentUser) {
@@ -527,7 +546,10 @@ export default function App() {
     dueDate: format(new Date(), 'yyyy-MM-dd'),
     progress: 0,
     alarm1Settings: { hour: 0, minute: 0 },
-    alarm2Settings: { hour: 0, minute: 0 }
+    alarm2Settings: { hour: 0, minute: 0 },
+    isMonthly: false,
+    repeatMonthly: false,
+    alarmTime: '08:00'
   });
 
   // New Assignee Form State
@@ -555,6 +577,9 @@ export default function App() {
     }
     
     return baseTasks.filter(task => {
+      const isMonthlyMatch = activeTab === 'monthly_tasks' ? task.isMonthly : !task.isMonthly;
+      if (!isMonthlyMatch) return false;
+
       const matchesSearch = task.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
                            task.assigneeNames?.some(name => name.toLowerCase().includes(searchQuery.toLowerCase()));
       const matchesStatus = filters.status === 'all' || task.status === filters.status;
@@ -563,7 +588,7 @@ export default function App() {
       
       return matchesSearch && matchesStatus && matchesPriority && matchesAssignee;
     });
-  }, [tasks, searchQuery, filters, isAdmin, currentUser]);
+  }, [tasks, searchQuery, filters, isAdmin, currentUser, activeTab]);
 
   const filteredPromotions = useMemo(() => {
     return promotions.filter(p => {
@@ -613,13 +638,26 @@ export default function App() {
     
     const calculateAlarms = (baseTime: Date) => {
       const alarms: TaskAlarm[] = [];
-      if (taskForm.alarm1Settings.hour > 0 || taskForm.alarm1Settings.minute > 0) {
-        const time = new Date(baseTime.getTime() + (taskForm.alarm1Settings.hour * 60 + taskForm.alarm1Settings.minute) * 60 * 1000);
-        alarms.push({ time: time.toISOString(), triggered: false });
-      }
-      if (taskForm.alarm2Settings.hour > 0 || taskForm.alarm2Settings.minute > 0) {
-        const time = new Date(baseTime.getTime() + (taskForm.alarm2Settings.hour * 60 + taskForm.alarm2Settings.minute) * 60 * 1000);
-        alarms.push({ time: time.toISOString(), triggered: false });
+      
+      if (taskForm.isMonthly) {
+        const [hour, minute] = taskForm.alarmTime?.split(':').map(Number) || [8, 0];
+        const alarmDate = new Date(taskForm.dueDate);
+        alarmDate.setHours(hour, minute, 0, 0);
+        
+        if (alarmDate < baseTime) {
+          alarmDate.setMonth(alarmDate.getMonth() + 1);
+        }
+        
+        alarms.push({ time: alarmDate.toISOString(), triggered: false });
+      } else {
+        if (taskForm.alarm1Settings.hour > 0 || taskForm.alarm1Settings.minute > 0) {
+          const time = new Date(baseTime.getTime() + (taskForm.alarm1Settings.hour * 60 + taskForm.alarm1Settings.minute) * 60 * 1000);
+          alarms.push({ time: time.toISOString(), triggered: false });
+        }
+        if (taskForm.alarm2Settings.hour > 0 || taskForm.alarm2Settings.minute > 0) {
+          const time = new Date(baseTime.getTime() + (taskForm.alarm2Settings.hour * 60 + taskForm.alarm2Settings.minute) * 60 * 1000);
+          alarms.push({ time: time.toISOString(), triggered: false });
+        }
       }
       return alarms;
     };
@@ -631,7 +669,11 @@ export default function App() {
           editingTask.alarm1Settings?.hour !== taskForm.alarm1Settings.hour || 
           editingTask.alarm1Settings?.minute !== taskForm.alarm1Settings.minute ||
           editingTask.alarm2Settings?.hour !== taskForm.alarm2Settings.hour || 
-          editingTask.alarm2Settings?.minute !== taskForm.alarm2Settings.minute;
+          editingTask.alarm2Settings?.minute !== taskForm.alarm2Settings.minute ||
+          editingTask.isMonthly !== taskForm.isMonthly ||
+          editingTask.repeatMonthly !== taskForm.repeatMonthly ||
+          editingTask.alarmTime !== taskForm.alarmTime ||
+          editingTask.dueDate !== taskForm.dueDate;
         
         await updateDoc(taskRef, {
           ...taskForm,
@@ -689,7 +731,10 @@ export default function App() {
       dueDate: format(new Date(), 'yyyy-MM-dd'),
       progress: 0,
       alarm1Settings: { hour: 0, minute: 0 },
-      alarm2Settings: { hour: 0, minute: 0 }
+      alarm2Settings: { hour: 0, minute: 0 },
+      isMonthly: false,
+      repeatMonthly: false,
+      alarmTime: '08:00'
     });
   };
 
@@ -720,6 +765,32 @@ export default function App() {
       });
     } catch (error) {
       handleFirestoreError(error, editingPromotion ? OperationType.UPDATE : OperationType.CREATE, 'special_promotions');
+    }
+  };
+
+  const handleSaveCompetitivePrice = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!competitivePriceForm.brand) return;
+    try {
+      if (editingCompetitivePrice) {
+        await updateDoc(doc(db, 'competitive_prices', editingCompetitivePrice.id), {
+          ...competitivePriceForm,
+          updatedAt: new Date().toISOString()
+        });
+      } else {
+        await addDoc(collection(db, 'competitive_prices'), {
+          ...competitivePriceForm,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          authorId: currentUser?.id,
+          authorName: currentUser?.name
+        });
+      }
+      setIsCompetitivePriceModalOpen(false);
+      setEditingCompetitivePrice(null);
+      setCompetitivePriceForm({ brand: '', memo: '' });
+    } catch (error) {
+      handleFirestoreError(error, editingCompetitivePrice ? OperationType.UPDATE : OperationType.CREATE, 'competitive_prices');
     }
   };
 
@@ -837,14 +908,6 @@ export default function App() {
           ledgerData: extractedData,
           assigneeName: assignee?.name || '',
           status: 'todo',
-          checks: {
-            '5일': false,
-            '10일': false,
-            '20일': false,
-            '25일': false,
-            '당월': false
-          },
-          checkedRows: [],
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString()
         });
@@ -856,57 +919,6 @@ export default function App() {
       handleFirestoreError(error, editingLedger ? OperationType.UPDATE : OperationType.CREATE, 'ledgers');
     } finally {
       setIsExtracting(false);
-    }
-  };
-
-  const toggleLedgerCheck = async (ledger: Ledger, checkKey: string) => {
-    try {
-      const newChecks = {
-        ...ledger.checks,
-        [checkKey]: !ledger.checks[checkKey as keyof typeof ledger.checks]
-      };
-      
-      await updateDoc(doc(db, 'ledgers', ledger.id), {
-        checks: newChecks,
-        updatedAt: new Date().toISOString()
-      });
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, 'ledgers');
-    }
-  };
-
-  const toggleRowCheck = async (ledger: Ledger, rowIndex: number, rowDate: string) => {
-    try {
-      const currentCheckedRows = ledger.checkedRows || [];
-      const isChecked = currentCheckedRows.includes(rowIndex);
-      const newCheckedRows = isChecked 
-        ? currentCheckedRows.filter(id => id !== rowIndex)
-        : [...currentCheckedRows, rowIndex];
-      
-      // Derive date status
-      const dateKeys = ['5일', '10일', '20일', '25일', '당월'];
-      const newChecks = { ...ledger.checks };
-      
-      if (dateKeys.includes(rowDate)) {
-        // Find all rows with this date
-        const rowsForDate = excelData.filter(r => String(r['결제일자'] || '') === rowDate);
-        // Find their indices in the original excelData
-        const indicesForDate = excelData
-          .map((r, idx) => String(r['결제일자'] || '') === rowDate ? idx : -1)
-          .filter(idx => idx !== -1);
-        
-        // Check if all these indices are in newCheckedRows
-        const allChecked = indicesForDate.every(idx => newCheckedRows.includes(idx));
-        newChecks[rowDate as keyof typeof ledger.checks] = allChecked;
-      }
-
-      await updateDoc(doc(db, 'ledgers', ledger.id), {
-        checkedRows: newCheckedRows,
-        checks: newChecks,
-        updatedAt: new Date().toISOString()
-      });
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, 'ledgers');
     }
   };
 
@@ -963,12 +975,53 @@ export default function App() {
             userId: currentUser.id
           });
         }
+      } else if (deleteConfirmation.type === 'promotion' && deleteConfirmation.id) {
+        await deleteDoc(doc(db, 'special_promotions', deleteConfirmation.id));
+        if (currentUser) {
+          await addDoc(collection(db, 'notifications'), {
+            title: '특판 삭제됨',
+            message: `"${deleteConfirmation.title}" 특판 정보가 삭제되었습니다.`,
+            type: 'warning',
+            timestamp: new Date().toISOString(),
+            read: false,
+            userId: currentUser.id
+          });
+        }
+      } else if (deleteConfirmation.type === 'competitive_price' && deleteConfirmation.id) {
+        await deleteDoc(doc(db, 'competitive_prices', deleteConfirmation.id));
+        if (currentUser) {
+          await addDoc(collection(db, 'notifications'), {
+            title: '대응가격 삭제됨',
+            message: `"${deleteConfirmation.title}" 대응가격 정보가 삭제되었습니다.`,
+            type: 'warning',
+            timestamp: new Date().toISOString(),
+            read: false,
+            userId: currentUser.id
+          });
+        }
+      } else if (deleteConfirmation.type === 'ledger' && deleteConfirmation.id) {
+        await deleteDoc(doc(db, 'ledgers', deleteConfirmation.id));
+        if (currentUser) {
+          await addDoc(collection(db, 'notifications'), {
+            title: '장부 삭제됨',
+            message: `"${deleteConfirmation.title}" 장부 현황이 삭제되었습니다.`,
+            type: 'warning',
+            timestamp: new Date().toISOString(),
+            read: false,
+            userId: currentUser.id
+          });
+        }
       } else if (deleteConfirmation.type === 'reset') {
         // Reset is complex in Firestore, maybe just clear and re-add mock data
         // For now, let's skip reset or implement it carefully
       }
     } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, deleteConfirmation.type === 'task' ? 'tasks' : 'assignees');
+      const path = deleteConfirmation.type === 'task' ? 'tasks' : 
+                   deleteConfirmation.type === 'assignee' ? 'assignees' : 
+                   deleteConfirmation.type === 'promotion' ? 'special_promotions' : 
+                   deleteConfirmation.type === 'competitive_price' ? 'competitive_prices' : 
+                   deleteConfirmation.type === 'ledger' ? 'ledgers' : 'unknown';
+      handleFirestoreError(error, OperationType.DELETE, path);
     }
     
     setDeleteConfirmation({ ...deleteConfirmation, isOpen: false });
@@ -1068,7 +1121,10 @@ export default function App() {
       dueDate: task.dueDate,
       progress: task.progress || 0,
       alarm1Settings: task.alarm1Settings || { hour: 0, minute: 0 },
-      alarm2Settings: task.alarm2Settings || { hour: 0, minute: 0 }
+      alarm2Settings: task.alarm2Settings || { hour: 0, minute: 0 },
+      isMonthly: task.isMonthly || false,
+      repeatMonthly: task.repeatMonthly || false,
+      alarmTime: task.alarmTime || '08:00'
     });
     setIsModalOpen(true);
   };
@@ -1083,7 +1139,10 @@ export default function App() {
       dueDate: format(new Date(), 'yyyy-MM-dd'),
       progress: 0,
       alarm1Settings: { hour: 0, minute: 0 },
-      alarm2Settings: { hour: 0, minute: 0 }
+      alarm2Settings: { hour: 0, minute: 0 },
+      isMonthly: activeTab === 'monthly_tasks',
+      repeatMonthly: activeTab === 'monthly_tasks',
+      alarmTime: '08:00'
     });
     setIsModalOpen(true);
   };
@@ -1323,18 +1382,46 @@ export default function App() {
             onClick={() => setActiveTab('dashboard')}
           />
           <SidebarItem 
+            icon={<Calendar className="w-5 h-5" />} 
+            label="월간업무[공통]" 
+            active={activeTab === 'monthly_tasks'} 
+            isOpen={isSidebarOpen}
+            onClick={() => setActiveTab('monthly_tasks')}
+          />
+          <SidebarItem 
             icon={<CheckCircle2 className="w-5 h-5" />} 
             label="업무 관리" 
             active={activeTab === 'tasks'} 
             isOpen={isSidebarOpen}
             onClick={() => setActiveTab('tasks')}
           />
+          <div className="space-y-1">
+            <SidebarItem 
+              icon={<Tag className="w-5 h-5" />} 
+              label="특판 안내" 
+              active={activeTab === 'promotions' || activeTab === 'competitive_prices'} 
+              isOpen={isSidebarOpen}
+              onClick={() => setActiveTab('promotions')}
+            />
+            {isSidebarOpen && (activeTab === 'promotions' || activeTab === 'competitive_prices') && (
+              <div className="pl-12 space-y-1">
+                <button 
+                  onClick={() => setActiveTab('competitive_prices')}
+                  className={cn(
+                    "w-full text-left p-2 text-sm rounded-lg transition-colors",
+                    activeTab === 'competitive_prices' ? "bg-[#EEF2FF] text-[#4F46E5] font-bold" : "text-[#6B7280] hover:bg-[#F9FAFB]"
+                  )}
+                >
+                  대응가격
+                </button>
+              </div>
+            )}
+          </div>
           <SidebarItem 
-            icon={<Tag className="w-5 h-5" />} 
-            label="특판 안내" 
-            active={activeTab === 'promotions'} 
+            icon={<Package className="w-5 h-5" />} 
+            label="특판수량[할당]" 
             isOpen={isSidebarOpen}
-            onClick={() => setActiveTab('promotions')}
+            onClick={() => window.open('https://teukpan-app.vercel.app', '_blank')}
           />
           <SidebarItem 
             icon={<Search className="w-5 h-5" />} 
@@ -2231,6 +2318,303 @@ export default function App() {
               </motion.div>
             )}
 
+            {activeTab === 'monthly_tasks' && (
+              <motion.div 
+                key="monthly_tasks"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                className="space-y-6"
+              >
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="flex items-center gap-4">
+                    <h2 className="text-2xl font-bold">월간업무[공통]</h2>
+                    <div className="flex bg-white border border-[#E5E7EB] rounded-lg p-1">
+                      <button 
+                        onClick={() => setViewMode('list')}
+                        className={cn(
+                          "px-4 py-1.5 text-sm font-medium rounded-md transition-all",
+                          viewMode === 'list' ? "bg-[#F3F4F6] text-[#1A1A1A]" : "text-[#6B7280] hover:bg-[#F9FAFB]"
+                        )}
+                      >
+                        리스트
+                      </button>
+                      <button 
+                        onClick={() => setViewMode('board')}
+                        className={cn(
+                          "px-4 py-1.5 text-sm font-medium rounded-md transition-all",
+                          viewMode === 'board' ? "bg-[#F3F4F6] text-[#1A1A1A]" : "text-[#6B7280] hover:bg-[#F9FAFB]"
+                        )}
+                      >
+                        보드
+                      </button>
+                    </div>
+                  </div>
+                  {isAdmin && (
+                    <button 
+                      onClick={() => {
+                        setEditingTask(null);
+                        setTaskForm({
+                          title: '',
+                          description: '',
+                          assigneeIds: [],
+                          priority: 'medium',
+                          dueDate: format(new Date(), 'yyyy-MM-dd'),
+                          progress: 0,
+                          alarm1Settings: { hour: 0, minute: 0 },
+                          alarm2Settings: { hour: 0, minute: 0 },
+                          isMonthly: true,
+                          repeatMonthly: true,
+                          alarmTime: '08:00'
+                        });
+                        setIsModalOpen(true);
+                      }}
+                      className="flex items-center justify-center gap-2 px-6 py-2.5 bg-[#4F46E5] text-white rounded-xl font-semibold shadow-lg shadow-indigo-100 hover:bg-[#4338CA] transition-all active:scale-95"
+                    >
+                      <Plus className="w-5 h-5" /> 새 업무 추가
+                    </button>
+                  )}
+                </div>
+
+                {viewMode === 'list' ? (
+                  <div className="bg-white rounded-2xl shadow-sm border border-[#E5E7EB] overflow-hidden overflow-x-auto min-h-[600px]">
+                    <table className="w-full text-left border-collapse min-w-[800px]">
+                      <thead>
+                        <tr className="bg-[#F9FAFB] border-b border-[#E5E7EB]">
+                          <th className="px-6 py-4 text-xs font-bold text-[#6B7280] uppercase tracking-wider">업무명</th>
+                          <th className="px-6 py-4 text-xs font-bold text-[#6B7280] uppercase tracking-wider text-center">진행률</th>
+                          <th className="px-6 py-4 text-xs font-bold text-[#6B7280] uppercase tracking-wider">담당자</th>
+                          <th className="px-6 py-4 text-xs font-bold text-[#6B7280] uppercase tracking-wider">우선순위</th>
+                          <th className="px-6 py-4 text-xs font-bold text-[#6B7280] uppercase tracking-wider">상태</th>
+                          <th className="px-6 py-4 text-xs font-bold text-[#6B7280] uppercase tracking-wider">지정일</th>
+                          <th className="px-6 py-4 text-xs font-bold text-[#6B7280] uppercase tracking-wider text-right">관리</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#E5E7EB]">
+                        {filteredTasks.map(task => (
+                          <tr key={task.id} className="hover:bg-[#F9FAFB] transition-colors group">
+                            <td className="px-6 py-4">
+                              <p className="text-sm font-semibold text-[#1A1A1A] group-hover:text-[#4F46E5] transition-colors cursor-pointer" onClick={() => openEditModal(task)}>
+                                {task.title}
+                              </p>
+                              <p className="text-xs text-[#6B7280] line-clamp-1 mt-1">{task.description}</p>
+                            </td>
+                            <td className="px-6 py-4 text-center">
+                              <div className="flex flex-col items-center gap-1">
+                                <span className="text-xs font-bold text-[#4F46E5]">{task.progress || 0}%</span>
+                                <div className="w-16 h-1 bg-[#E5E7EB] rounded-full overflow-hidden">
+                                  <div className="h-full bg-[#4F46E5]" style={{ width: `${task.progress || 0}%` }} />
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4">
+                              <div className="flex items-center gap-2">
+                                <div className="w-6 h-6 bg-indigo-50 rounded-full flex items-center justify-center">
+                                  <UserIcon className="w-3.5 h-3.5 text-[#4F46E5]" />
+                                </div>
+                                <span className="text-sm">{task.assigneeNames?.join(', ') || '미지정'}</span>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4">
+                              <span className={cn(
+                                "px-2.5 py-1 rounded-full text-[10px] font-bold uppercase border",
+                                PRIORITY_COLORS[task.priority]
+                              )}>
+                                {task.priority}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4">
+                              <div className="flex items-center gap-2 text-sm cursor-pointer" onClick={() => toggleTaskStatus(task.id)}>
+                                <span className={cn(
+                                  "p-1 rounded-md transition-colors",
+                                  task.status === 'done' ? 'bg-green-100 text-green-600 hover:bg-green-200' : 
+                                  task.status === 'in-progress' ? 'bg-yellow-100 text-yellow-600 hover:bg-yellow-200' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                )}>
+                                  {STATUS_ICONS[task.status as keyof typeof STATUS_ICONS]}
+                                </span>
+                                <span className="font-medium">{STATUS_LABELS[task.status as keyof typeof STATUS_LABELS]}</span>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 text-sm text-[#6B7280]">
+                              {format(new Date(task.dueDate), 'yyyy.MM.dd')}
+                            </td>
+                            <td className="px-6 py-4 text-right">
+                              <div className="flex items-center justify-end gap-2">
+                                {isAdmin && (
+                                  <>
+                                    <button 
+                                      onClick={() => openEditModal(task)}
+                                      className="p-2 hover:bg-[#F3F4F6] rounded-lg transition-colors text-[#6B7280] hover:text-[#4F46E5]"
+                                      title="수정"
+                                    >
+                                      <Settings className="w-4 h-4" />
+                                    </button>
+                                    <button 
+                                      onClick={() => handleDeleteTask(task.id)}
+                                      className="p-2 hover:bg-red-50 rounded-lg transition-colors text-[#9CA3AF] hover:text-red-500"
+                                      title="삭제"
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                        {filteredTasks.length === 0 && (
+                          <tr>
+                            <td colSpan={7} className="px-6 py-12 text-center text-[#9CA3AF]">
+                              등록된 월간 업무가 없습니다.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    {(['todo', 'in-progress', 'done'] as Status[]).map(status => (
+                      <div key={status} className="flex flex-col gap-4">
+                        <div className="flex items-center justify-between px-2">
+                          <div className="flex items-center gap-2">
+                            <h3 className="font-bold text-xs tracking-widest text-[#6B7280]">{STATUS_LABELS[status as keyof typeof STATUS_LABELS]}</h3>
+                            <span className="bg-[#E5E7EB] text-[#6B7280] text-[10px] font-bold px-2 py-0.5 rounded-full">
+                              {filteredTasks.filter(t => t.status === status).length}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex-1 min-h-[500px] bg-[#F3F4F6]/50 rounded-2xl p-4 space-y-4 border-2 border-dashed border-[#E5E7EB]">
+                          {filteredTasks.filter(t => t.status === status).map(task => (
+                            <motion.div 
+                              layout
+                              key={task.id}
+                              className="bg-white p-4 rounded-xl shadow-sm border border-[#E5E7EB] hover:shadow-md transition-all cursor-pointer group"
+                              onClick={() => openEditModal(task)}
+                            >
+                              <div className="flex items-start justify-between mb-3">
+                                <div className="flex items-center gap-2">
+                                  <span className={cn(
+                                    "px-2 py-0.5 rounded-full text-[9px] font-bold uppercase border",
+                                    PRIORITY_COLORS[task.priority]
+                                  )}>
+                                    {task.priority}
+                                  </span>
+                                </div>
+                                {isAdmin && (
+                                  <button 
+                                    onClick={(e) => { e.stopPropagation(); handleDeleteTask(task.id); }}
+                                    className="p-1 text-[#9CA3AF] hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                              </div>
+                              <h4 className="font-bold text-sm mb-2 group-hover:text-[#4F46E5] transition-colors">{task.title}</h4>
+                              <div className="flex items-center justify-between mb-3">
+                                <div className="flex-1 h-1.5 bg-[#F3F4F6] rounded-full overflow-hidden mr-2">
+                                  <div className="h-full bg-[#4F46E5]" style={{ width: `${task.progress || 0}%` }} />
+                                </div>
+                                <span className="text-[10px] font-bold text-[#4F46E5]">{task.progress || 0}%</span>
+                              </div>
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-1.5">
+                                  <div className="w-5 h-5 bg-indigo-50 rounded-full flex items-center justify-center">
+                                    <UserIcon className="w-3 text-[#4F46E5]" />
+                                  </div>
+                                  <span className="text-[10px] text-[#6B7280] font-medium">{task.assigneeNames?.[0]}{task.assigneeNames && task.assigneeNames.length > 1 ? ` 외 ${task.assigneeNames.length - 1}명` : ''}</span>
+                                </div>
+                                <div className="flex items-center gap-1 text-[10px] text-[#9CA3AF] font-bold">
+                                  <Calendar className="w-3 h-3" />
+                                  {format(new Date(task.dueDate), 'MM.dd')}
+                                </div>
+                              </div>
+                            </motion.div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </motion.div>
+            )}
+            {activeTab === 'competitive_prices' && (
+              <motion.div 
+                key="competitive_prices"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                className="space-y-6"
+              >
+                <div className="flex items-center justify-between">
+                  <h2 className="text-2xl font-bold">대응가격</h2>
+                  {isAdmin && (
+                    <button 
+                      onClick={() => {
+                        setEditingCompetitivePrice(null);
+                        setCompetitivePriceForm({ brand: '', memo: '' });
+                        setIsCompetitivePriceModalOpen(true);
+                      }}
+                      className="flex items-center gap-2 px-4 py-2 bg-[#4F46E5] text-white rounded-xl font-semibold hover:bg-[#4338CA] transition-all shadow-lg shadow-indigo-100"
+                    >
+                      <Plus className="w-4 h-4" /> 대응가격 추가
+                    </button>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {competitivePrices.map(cp => (
+                    <div 
+                      key={cp.id} 
+                      onClick={() => {
+                        setEditingCompetitivePrice(cp);
+                        setCompetitivePriceForm({ brand: cp.brand, memo: cp.memo });
+                        setIsCompetitivePriceModalOpen(true);
+                      }}
+                      className="p-6 bg-white rounded-2xl shadow-sm border border-[#E5E7EB] hover:shadow-md transition-all group cursor-pointer"
+                    >
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-indigo-50 rounded-xl flex items-center justify-center text-[#4F46E5]">
+                            <Tag className="w-5 h-5" />
+                          </div>
+                          <h3 className="font-bold text-lg group-hover:text-[#4F46E5] transition-colors">{cp.brand}</h3>
+                        </div>
+                        {isAdmin && (
+                          <button 
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              if (confirm('정말 삭제하시겠습니까?')) {
+                                await deleteDoc(doc(db, 'competitive_prices', cp.id));
+                              }
+                            }}
+                            className="p-2 text-[#9CA3AF] hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                      <p className="text-sm text-[#6B7280] line-clamp-3 mb-6 leading-relaxed">{cp.memo}</p>
+                      <div className="flex items-center justify-between pt-4 border-t border-[#F3F4F6]">
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-5 h-5 bg-gray-50 rounded-full flex items-center justify-center">
+                            <UserIcon className="w-3 text-[#9CA3AF]" />
+                          </div>
+                          <span className="text-[10px] text-[#9CA3AF] font-medium">{cp.authorName}</span>
+                        </div>
+                        <span className="text-[10px] text-[#9CA3AF]">{format(new Date(cp.updatedAt), 'MM.dd HH:mm')}</span>
+                      </div>
+                    </div>
+                  ))}
+                  {competitivePrices.length === 0 && (
+                    <div className="col-span-full py-12 text-center bg-white rounded-2xl border border-dashed border-[#D1D5DB]">
+                      <p className="text-[#9CA3AF] italic">등록된 대응가격 정보가 없습니다.</p>
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            )}
+
             {activeTab === 'ledgers' && (
               <motion.div 
                 key="ledgers"
@@ -2417,6 +2801,50 @@ export default function App() {
                 </div>
 
                 {isAdmin && (
+                  <div className="bg-white rounded-2xl p-8 shadow-sm border border-[#E5E7EB] mb-6">
+                    <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
+                      <Shield className="w-5 h-5 text-[#4F46E5]" />
+                      관리자 권한 지정
+                    </h2>
+                    <div className="space-y-4">
+                      {assignees.map(a => (
+                        <div key={a.id} className="flex items-center justify-between p-4 bg-[#F9FAFB] rounded-xl">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center shadow-sm">
+                              <UserIcon className="w-5 h-5 text-[#6B7280]" />
+                            </div>
+                            <div>
+                              <p className="font-bold text-sm">{a.name}</p>
+                              <p className="text-[10px] text-[#6B7280] uppercase tracking-wider">{a.role || 'user'}</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button 
+                              onClick={async () => {
+                                const newRole = a.role === 'admin' ? 'user' : 'admin';
+                                try {
+                                  await updateDoc(doc(db, 'assignees', a.id), { role: newRole });
+                                } catch (error) {
+                                  handleFirestoreError(error, OperationType.UPDATE, 'assignees');
+                                }
+                              }}
+                              className={cn(
+                                "px-4 py-2 rounded-lg text-xs font-bold transition-all",
+                                a.role === 'admin' 
+                                  ? "bg-red-50 text-red-600 hover:bg-red-100" 
+                                  : "bg-indigo-50 text-[#4F46E5] hover:bg-indigo-100"
+                              )}
+                            >
+                              {a.role === 'admin' ? '관리자 해제' : '관리자 지정'}
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {isAdmin && (
                   <div className="bg-white rounded-2xl p-8 shadow-sm border border-red-100">
                     <h2 className="text-xl font-bold text-red-600 mb-6">위험 구역</h2>
                     <div className="p-4 bg-red-50 rounded-xl border border-red-100 flex items-center justify-between">
@@ -2541,7 +2969,9 @@ export default function App() {
                       </div>
                     </div>
                     <div className="space-y-2">
-                      <label className="text-sm font-bold text-[#6B7280] uppercase tracking-wider">마감일</label>
+                      <label className="text-sm font-bold text-[#6B7280] uppercase tracking-wider">
+                        {activeTab === 'monthly_tasks' ? '지정일' : '마감일'}
+                      </label>
                       <input 
                         type="date" 
                         value={taskForm.dueDate}
@@ -2555,7 +2985,41 @@ export default function App() {
                     </div>
                   </div>
 
-                  {isAdmin && (
+                  {activeTab === 'monthly_tasks' && isAdmin && (
+                    <div className="p-4 bg-indigo-50 rounded-2xl border border-indigo-100 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <input 
+                            type="checkbox"
+                            id="repeat-monthly"
+                            checked={taskForm.repeatMonthly}
+                            onChange={(e) => setTaskForm({ ...taskForm, repeatMonthly: e.target.checked })}
+                            className="w-4 h-4 rounded border-[#E5E7EB] text-[#4F46E5] focus:ring-[#4F46E5]"
+                          />
+                          <label htmlFor="repeat-monthly" className="text-sm font-bold text-[#4F46E5]">매달 반복 알람</label>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Clock className="w-4 h-4 text-[#4F46E5]" />
+                          <select 
+                            value={taskForm.alarmTime}
+                            onChange={(e) => setTaskForm({ ...taskForm, alarmTime: e.target.value })}
+                            className="bg-transparent text-sm font-bold text-[#4F46E5] outline-none"
+                          >
+                            {Array.from({ length: 10 }, (_, i) => {
+                              const hour = i + 8;
+                              const ampm = hour < 12 ? 'AM' : 'PM';
+                              const displayHour = hour > 12 ? hour - 12 : hour;
+                              const value = `${hour.toString().padStart(2, '0')}:00`;
+                              return <option key={value} value={value}>{ampm} {displayHour}:00</option>;
+                            })}
+                          </select>
+                        </div>
+                      </div>
+                      <p className="text-[10px] text-indigo-600/70">지정된 날짜에 매달 알람이 울립니다. (오전 8시 ~ 오후 5시 선택 가능)</p>
+                    </div>
+                  )}
+
+                  {isAdmin && activeTab !== 'monthly_tasks' && (
                     <div className="space-y-4">
                       <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
@@ -2745,6 +3209,9 @@ export default function App() {
                 <p className="text-[#6B7280] text-sm mb-8">
                   {deleteConfirmation.type === 'task' ? `"${deleteConfirmation.title}" 업무가 영구적으로 삭제됩니다.` : 
                    deleteConfirmation.type === 'assignee' ? `"${deleteConfirmation.title}" 팀원 정보가 영구적으로 삭제됩니다.` : 
+                   deleteConfirmation.type === 'promotion' ? `"${deleteConfirmation.title}" 특판 정보가 영구적으로 삭제됩니다.` :
+                   deleteConfirmation.type === 'competitive_price' ? `"${deleteConfirmation.title}" 대응가격 정보가 영구적으로 삭제됩니다.` :
+                   deleteConfirmation.type === 'ledger' ? `"${deleteConfirmation.title}" 장부 현황이 영구적으로 삭제됩니다.` :
                    '모든 데이터가 초기화되며 복구할 수 없습니다.'}
                 </p>
                 <div className="flex gap-3">
@@ -3068,7 +3535,88 @@ export default function App() {
           </div>
         )}
 
-        {/* Ledger Detail Modal */}
+      {/* Competitive Price Modal */}
+      <AnimatePresence>
+        {isCompetitivePriceModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => {
+                setIsCompetitivePriceModalOpen(false);
+                setEditingCompetitivePrice(null);
+              }}
+              className="absolute inset-0 bg-[#1A1A1A]/60 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden"
+            >
+              <div className="p-8">
+                <div className="flex items-center justify-between mb-8">
+                  <h2 className="text-2xl font-bold">{editingCompetitivePrice ? '대응가격 상세' : '새 대응가격 등록'}</h2>
+                  <button 
+                    onClick={() => {
+                      setIsCompetitivePriceModalOpen(false);
+                      setEditingCompetitivePrice(null);
+                    }} 
+                    className="p-2 hover:bg-[#F3F4F6] rounded-full transition-colors"
+                  >
+                    <X className="w-6 h-6" />
+                  </button>
+                </div>
+
+                <form onSubmit={handleSaveCompetitivePrice} className="space-y-6">
+                  <div className="space-y-2">
+                    <label className="text-sm font-bold text-[#6B7280] uppercase tracking-wider">브랜드</label>
+                    <input 
+                      required
+                      readOnly={!isAdmin}
+                      type="text" 
+                      value={competitivePriceForm.brand}
+                      onChange={(e) => setCompetitivePriceForm({ ...competitivePriceForm, brand: e.target.value })}
+                      className={cn(
+                        "w-full px-4 py-3 bg-[#F9FAFB] border border-[#E5E7EB] rounded-2xl text-sm focus:ring-2 focus:ring-[#4F46E5] outline-none transition-all",
+                        !isAdmin && "opacity-70 cursor-not-allowed"
+                      )}
+                      placeholder="브랜드명"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-bold text-[#6B7280] uppercase tracking-wider">메모</label>
+                    <textarea 
+                      required
+                      readOnly={!isAdmin}
+                      value={competitivePriceForm.memo}
+                      onChange={(e) => setCompetitivePriceForm({ ...competitivePriceForm, memo: e.target.value })}
+                      className={cn(
+                        "w-full px-4 py-3 bg-[#F9FAFB] border border-[#E5E7EB] rounded-2xl text-sm focus:ring-2 focus:ring-[#4F46E5] outline-none transition-all min-h-[200px] resize-none",
+                        !isAdmin && "opacity-70 cursor-not-allowed"
+                      )}
+                      placeholder="대응가격 관련 상세 메모"
+                    />
+                  </div>
+
+                  {isAdmin && (
+                    <button 
+                      type="submit"
+                      className="w-full py-4 bg-[#4F46E5] text-white rounded-2xl font-bold text-lg shadow-xl shadow-indigo-100 hover:bg-[#4338CA] transition-all active:scale-[0.98] mt-4"
+                    >
+                      {editingCompetitivePrice ? '수정 완료' : '등록하기'}
+                    </button>
+                  )}
+                </form>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Ledger Detail Modal */}
         {isLedgerDetailModalOpen && selectedLedger && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
             <motion.div 
@@ -3108,23 +3656,33 @@ export default function App() {
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-1">
                         <label className="text-[10px] font-bold text-[#9CA3AF]">결제일자</label>
-                        <input 
-                          type="text"
+                        <select 
                           value={ledgerFilters.paymentDate}
                           onChange={(e) => setLedgerFilters({ ...ledgerFilters, paymentDate: e.target.value })}
-                          placeholder="날짜 검색..."
                           className="w-full px-4 py-2 bg-[#F9FAFB] border border-[#E5E7EB] rounded-xl text-xs focus:ring-2 focus:ring-[#4F46E5] outline-none"
-                        />
+                        >
+                          <option value="">전체</option>
+                          <option value="5일">5일</option>
+                          <option value="10일">10일</option>
+                          <option value="20일">20일</option>
+                          <option value="25일">25일</option>
+                          <option value="말일">말일</option>
+                          <option value="당월">당월</option>
+                        </select>
                       </div>
                       <div className="space-y-1">
                         <label className="text-[10px] font-bold text-[#9CA3AF]">지불유형</label>
-                        <input 
-                          type="text"
+                        <select 
                           value={ledgerFilters.paymentType}
                           onChange={(e) => setLedgerFilters({ ...ledgerFilters, paymentType: e.target.value })}
-                          placeholder="유형 검색..."
                           className="w-full px-4 py-2 bg-[#F9FAFB] border border-[#E5E7EB] rounded-xl text-xs focus:ring-2 focus:ring-[#4F46E5] outline-none"
-                        />
+                        >
+                          <option value="">전체</option>
+                          <option value="현금">현금</option>
+                          <option value="어음">어음</option>
+                          <option value="구매자금">구매자금</option>
+                          <option value="상계">상계</option>
+                        </select>
                       </div>
                     </div>
                   </div>
@@ -3156,9 +3714,6 @@ export default function App() {
                                 return dateMatch && typeMatch;
                               })
                               .map((row, i) => {
-                                const rowDate = String(row['결제일자'] || '');
-                                const isChecked = selectedLedger.checkedRows?.includes(i);
-                                
                                 return (
                                   <tr key={i} className="hover:bg-[#F9FAFB] transition-colors text-center">
                                     <td className="px-4 py-4 text-[#9CA3AF] font-mono text-[10px]">{i + 1}</td>

@@ -14,30 +14,9 @@
         "dueDate": { "type": "string", "format": "date", "description": "The due date (YYYY-MM-DD)." },
         "createdAt": { "type": "string", "format": "date-time", "description": "The creation timestamp." },
         "progress": { "type": "number", "description": "The progress percentage (0-100)." },
-        "alarm1Settings": {
-          "type": "object",
-          "properties": {
-            "hour": { "type": "string" },
-            "minute": { "type": "string" }
-          }
-        },
-        "alarm2Settings": {
-          "type": "object",
-          "properties": {
-            "hour": { "type": "string" },
-            "minute": { "type": "string" }
-          }
-        },
-        "alarms": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "time": { "type": "string", "format": "date-time" },
-              "triggered": { "type": "boolean" }
-            }
-          }
-        }
+        "isMonthly": { "type": "boolean" },
+        "repeatMonthly": { "type": "boolean" },
+        "alarmTime": { "type": "string" }
       },
       "required": ["title", "assigneeIds", "assigneeNames", "status", "createdAt"]
     },
@@ -48,23 +27,10 @@
       "properties": {
         "name": { "type": "string", "description": "The name of the team member." },
         "password": { "type": "string", "description": "The login password." },
-        "note": { "type": "string", "description": "A personal note for the team member." }
+        "note": { "type": "string", "description": "A personal note for the team member." },
+        "role": { "type": "string", "enum": ["admin", "member"] }
       },
       "required": ["name", "password"]
-    },
-    "Notification": {
-      "title": "Notification",
-      "description": "An in-app notification for a user.",
-      "type": "object",
-      "properties": {
-        "title": { "type": "string", "description": "The notification title." },
-        "message": { "type": "string", "description": "The notification message." },
-        "type": { "type": "string", "enum": ["info", "warning", "success", "error"] },
-        "timestamp": { "type": "string", "format": "date-time" },
-        "read": { "type": "boolean" },
-        "userId": { "type": "string", "description": "The ID of the user this notification is for." }
-      },
-      "required": ["title", "message", "timestamp", "read"]
     },
     "SpecialPromotion": {
       "title": "SpecialPromotion",
@@ -77,9 +43,31 @@
         "productNumber": { "type": "string" },
         "discountRate": { "type": "number" },
         "discountPrice": { "type": "number" },
-        "createdAt": { "type": "string", "format": "date-time" }
+        "description": { "type": "string" },
+        "assigneeId": { "type": "string" },
+        "assigneeName": { "type": "string" },
+        "status": { "type": "string" },
+        "fileUrl": { "type": "string" },
+        "fileName": { "type": "string" },
+        "promotionData": { "type": "array", "items": { "type": "object" } },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["brand", "productName", "discountPrice", "createdAt"]
+    },
+    "CompetitivePrice": {
+      "title": "CompetitivePrice",
+      "description": "Competitive price information.",
+      "type": "object",
+      "properties": {
+        "brand": { "type": "string" },
+        "memo": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "authorId": { "type": "string" },
+        "authorName": { "type": "string" }
+      },
+      "required": ["brand", "memo", "createdAt", "authorId"]
     },
     "Ledger": {
       "title": "Ledger",
@@ -90,30 +78,38 @@
         "description": { "type": "string" },
         "assigneeId": { "type": "string" },
         "assigneeName": { "type": "string" },
-        "checks": {
-          "type": "object",
-          "properties": {
-            "5일": { "type": "boolean" },
-            "10일": { "type": "boolean" },
-            "20일": { "type": "boolean" },
-            "25일": { "type": "boolean" },
-            "당월": { "type": "boolean" }
-          }
-        },
-        "checkedRows": { "type": "array", "items": { "type": "integer" } },
         "ledgerData": { "type": "array", "items": { "type": "object" } },
+        "status": { "type": "string", "enum": ["todo", "in-progress", "done"] },
         "fileUrl": { "type": "string" },
         "fileName": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["title", "assigneeId", "checks", "createdAt"]
+      "required": ["title", "assigneeId", "createdAt"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "User notifications.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "type": { "type": "string", "enum": ["info", "success", "warning", "error"] },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "read": { "type": "boolean" },
+        "userId": { "type": "string" }
+      },
+      "required": ["title", "message", "type", "timestamp", "read", "userId"]
     }
   },
   "firestore": {
     "/special_promotions/{promotionId}": {
       "schema": "SpecialPromotion",
       "description": "Collection of special promotions."
+    },
+    "/competitive_prices/{priceId}": {
+      "schema": "CompetitivePrice",
+      "description": "Collection of competitive prices."
     },
     "/ledgers/{ledgerId}": {
       "schema": "Ledger",
