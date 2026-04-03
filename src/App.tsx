@@ -458,7 +458,7 @@ export default function App() {
   }, [tasks, searchQuery, filters, isAdmin, currentUser]);
 
   const stats = useMemo(() => {
-    const baseTasks = isAdmin ? tasks : tasks.filter(t => t.assigneeId === currentUser?.id);
+    const baseTasks = isAdmin ? tasks : tasks.filter(t => t.assigneeIds?.includes(currentUser?.id || ''));
     const total = baseTasks.length;
     const done = baseTasks.filter(t => t.status === 'done').length;
     const inProgress = baseTasks.filter(t => t.status === 'in-progress').length;
@@ -468,7 +468,7 @@ export default function App() {
 
   const teamStats = useMemo(() => {
     return assignees.map(assignee => {
-      const userTasks = tasks.filter(t => t.assigneeId === assignee.id);
+      const userTasks = tasks.filter(t => t.assigneeIds?.includes(assignee.id));
       const total = userTasks.length;
       const totalProgress = userTasks.reduce((acc, t) => acc + (t.progress || 0), 0);
       const progress = total > 0 ? Math.round(totalProgress / total) : 0;
@@ -589,7 +589,7 @@ export default function App() {
           type: 'warning',
           timestamp: new Date().toISOString(),
           read: false,
-          userId: taskToDelete?.assigneeId
+          userId: taskToDelete?.assigneeIds?.[0] || ''
         });
       } else if (deleteConfirmation.type === 'assignee' && deleteConfirmation.id) {
         const id = deleteConfirmation.id;
@@ -687,7 +687,7 @@ export default function App() {
         type: 'info',
         timestamp: new Date().toISOString(),
         read: false,
-        userId: task.assigneeId
+        userId: task.assigneeIds?.[0] || ''
       });
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, 'tasks');
@@ -1183,7 +1183,7 @@ export default function App() {
                           <div className="max-h-[60vh] overflow-y-auto space-y-4 pr-2 custom-scrollbar">
                             {tasks
                               .filter(t => {
-                                if (!isAdmin && t.assigneeId !== currentUser.id) return false;
+                                if (!isAdmin && !t.assigneeIds?.includes(currentUser.id)) return false;
                                 if (selectedStat === 'all') return true;
                                 return t.status === selectedStat;
                               })
@@ -1202,7 +1202,7 @@ export default function App() {
                               />
                             ))}
                             {tasks.filter(t => {
-                              if (!isAdmin && t.assigneeId !== currentUser.id) return false;
+                              if (!isAdmin && !t.assigneeIds?.includes(currentUser.id)) return false;
                               if (selectedStat === 'all') return true;
                               return t.status === selectedStat;
                             }).length === 0 && (
@@ -1308,7 +1308,7 @@ export default function App() {
                           </p>
                           {tasks
                             .filter(t => {
-                              if (!isAdmin && t.assigneeId !== currentUser.id) return false;
+                              if (!isAdmin && !t.assigneeIds?.includes(currentUser.id)) return false;
                               if (selectedCalendarDate === format(new Date(), 'yyyy-MM-dd')) {
                                 return t.status !== 'done';
                               }
@@ -1334,7 +1334,7 @@ export default function App() {
                             </div>
                           ))}
                           {tasks.filter(t => {
-                            if (!isAdmin && t.assigneeId !== currentUser.id) return false;
+                            if (!isAdmin && !t.assigneeIds?.includes(currentUser.id)) return false;
                             if (selectedCalendarDate === format(new Date(), 'yyyy-MM-dd')) {
                               return t.status !== 'done';
                             }
@@ -1867,7 +1867,7 @@ export default function App() {
 
                 <form className="space-y-6" onSubmit={(e) => { 
                   e.preventDefault(); 
-                  const isAssignedToMe = editingTask?.assigneeIds?.includes(currentUser.id);
+                  const isAssignedToMe = currentUser && editingTask?.assigneeIds?.includes(currentUser.id);
                   if (isAdmin || isAssignedToMe) handleSaveTask(); 
                   else setIsModalOpen(false); 
                 }}>
@@ -2048,7 +2048,7 @@ export default function App() {
                     type="submit"
                     className="w-full py-4 bg-[#4F46E5] text-white rounded-2xl font-bold text-lg shadow-xl shadow-indigo-100 hover:bg-[#4338CA] transition-all active:scale-[0.98] mt-4"
                   >
-                    {(isAdmin || (editingTask?.assigneeId === currentUser.id)) ? (editingTask ? '저장하기' : '업무 생성하기') : '닫기'}
+                    {(isAdmin || (currentUser && editingTask?.assigneeIds?.includes(currentUser.id))) ? (editingTask ? '저장하기' : '업무 생성하기') : '닫기'}
                   </button>
                 </form>
               </div>
@@ -2302,7 +2302,7 @@ interface TaskRowProps {
 }
 
 const TaskRow: React.FC<TaskRowProps & { isAdmin: boolean, currentUserId: string }> = ({ task, onEdit, onDelete, onToggleStatus, isAdmin, currentUserId }) => {
-  const isAssignedToMe = task.assigneeId === currentUserId;
+  const isAssignedToMe = task.assigneeIds?.includes(currentUserId);
   const canEdit = isAdmin || isAssignedToMe;
 
   return (
@@ -2327,7 +2327,7 @@ const TaskRow: React.FC<TaskRowProps & { isAdmin: boolean, currentUserId: string
           </div>
           <div className="flex items-center gap-2 mt-0.5">
             <span className={cn("text-xs", isAssignedToMe ? "text-[#4F46E5] font-bold" : "text-[#6B7280]")}>
-              {task.assigneeName} {isAssignedToMe && "(나)"}
+              {task.assigneeNames?.join(', ') || '미지정'} {isAssignedToMe && "(나)"}
             </span>
             <span className="text-[10px] text-[#D1D5DB]">•</span>
             <span className="text-xs text-[#6B7280]">{format(new Date(task.dueDate), 'MM월 dd일')}</span>

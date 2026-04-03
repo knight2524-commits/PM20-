@@ -2,18 +2,32 @@
   "entities": {
     "Task": {
       "title": "Task",
-      "description": "A task assigned to a team member.",
+      "description": "A task assigned to team members.",
       "type": "object",
       "properties": {
         "title": { "type": "string", "description": "The title of the task." },
         "description": { "type": "string", "description": "A detailed description of the task." },
-        "assigneeId": { "type": "string", "description": "The ID of the assignee." },
-        "assigneeName": { "type": "string", "description": "The name of the assignee." },
+        "assigneeIds": { "type": "array", "items": { "type": "string" }, "description": "The IDs of the assignees." },
+        "assigneeNames": { "type": "array", "items": { "type": "string" }, "description": "The names of the assignees." },
         "priority": { "type": "string", "enum": ["low", "medium", "high"], "description": "The priority level." },
         "status": { "type": "string", "enum": ["todo", "in-progress", "done"], "description": "The current status." },
         "dueDate": { "type": "string", "format": "date", "description": "The due date (YYYY-MM-DD)." },
         "createdAt": { "type": "string", "format": "date-time", "description": "The creation timestamp." },
         "progress": { "type": "number", "description": "The progress percentage (0-100)." },
+        "alarm1Settings": {
+          "type": "object",
+          "properties": {
+            "hour": { "type": "string" },
+            "minute": { "type": "string" }
+          }
+        },
+        "alarm2Settings": {
+          "type": "object",
+          "properties": {
+            "hour": { "type": "string" },
+            "minute": { "type": "string" }
+          }
+        },
         "alarms": {
           "type": "array",
           "items": {
@@ -25,7 +39,7 @@
           }
         }
       },
-      "required": ["title", "assigneeId", "status", "createdAt"]
+      "required": ["title", "assigneeIds", "assigneeNames", "status", "createdAt"]
     },
     "Assignee": {
       "title": "Assignee",
