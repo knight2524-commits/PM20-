@@ -65,7 +65,7 @@
         "userId": { "type": "string", "description": "The ID of the user this notification is for." }
       },
       "required": ["title", "message", "timestamp", "read"]
-    }
+    },
     "SpecialPromotion": {
       "title": "SpecialPromotion",
       "description": "Special promotion information.",

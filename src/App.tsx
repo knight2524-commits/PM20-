@@ -254,10 +254,16 @@ export default function App() {
     discountPrice: 0
   });
 
-  const [ledgerForm, setLedgerForm] = useState({
+  const [ledgerForm, setLedgerForm] = useState<{
+    title: string;
+    description: string;
+    assigneeId: string;
+    file: File | null;
+  }>({
     title: '',
     description: '',
-    assigneeId: 'all'
+    assigneeId: 'all',
+    file: null
   });
 
   const [confirmReset, setConfirmReset] = useState(false);
@@ -653,31 +659,34 @@ export default function App() {
     }
   };
 
-  const handleSaveLedger = async (file?: File) => {
+  const handleSaveLedger = async (e: React.FormEvent) => {
+    e.preventDefault();
     if (!ledgerForm.title) return;
     try {
       let fileData = {};
-      if (file) {
+      if (ledgerForm.file) {
         // In a real app, you'd upload to Firebase Storage. 
         // For this demo, we'll just store the name and a mock URL.
         fileData = {
-          fileName: file.name,
+          fileName: ledgerForm.file.name,
           fileUrl: '#' // Mock URL
         };
       }
 
       const assignee = ledgerForm.assigneeId === 'all' ? { id: 'all', name: '전체' } : assignees.find(a => a.id === ledgerForm.assigneeId);
 
+      const { file, ...formData } = ledgerForm;
+
       if (editingLedger) {
         await updateDoc(doc(db, 'ledgers', editingLedger.id), {
-          ...ledgerForm,
+          ...formData,
           ...fileData,
           assigneeName: assignee?.name || '',
           updatedAt: new Date().toISOString()
         });
       } else {
         await addDoc(collection(db, 'ledgers'), {
-          ...ledgerForm,
+          ...formData,
           ...fileData,
           assigneeName: assignee?.name || '',
           status: 'pending',
@@ -687,7 +696,7 @@ export default function App() {
       }
       setIsLedgerModalOpen(false);
       setEditingLedger(null);
-      setLedgerForm({ title: '', description: '', assigneeId: 'all' });
+      setLedgerForm({ title: '', description: '', assigneeId: 'all', file: null });
     } catch (error) {
       handleFirestoreError(error, editingLedger ? OperationType.UPDATE : OperationType.CREATE, 'ledgers');
     }
@@ -2026,7 +2035,7 @@ export default function App() {
                     <button 
                       onClick={() => {
                         setEditingLedger(null);
-                        setLedgerForm({ title: '', description: '', assigneeId: 'all' });
+                        setLedgerForm({ title: '', description: '', assigneeId: 'all', file: null });
                         setIsLedgerModalOpen(true);
                       }}
                       className="flex items-center gap-2 px-4 py-2 bg-[#4F46E5] text-white rounded-xl font-semibold hover:bg-[#4338CA] transition-all"
@@ -2054,16 +2063,33 @@ export default function App() {
                           </div>
                         </div>
                         {isAdmin && (
-                          <button 
-                            onClick={async () => {
-                              if (confirm('정말 삭제하시겠습니까?')) {
-                                await deleteDoc(doc(db, 'ledgers', l.id));
-                              }
-                            }}
-                            className="p-1.5 text-[#9CA3AF] hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                            <button 
+                              onClick={() => {
+                                setEditingLedger(l);
+                                setLedgerForm({
+                                  title: l.title,
+                                  description: l.description,
+                                  assigneeId: l.assigneeId,
+                                  file: null
+                                });
+                                setIsLedgerModalOpen(true);
+                              }}
+                              className="p-1.5 text-[#9CA3AF] hover:text-[#4F46E5] transition-colors"
+                            >
+                              <Plus className="w-4 h-4" />
+                            </button>
+                            <button 
+                              onClick={async () => {
+                                if (confirm('정말 삭제하시겠습니까?')) {
+                                  await deleteDoc(doc(db, 'ledgers', l.id));
+                                }
+                              }}
+                              className="p-1.5 text-[#9CA3AF] hover:text-red-500 transition-all"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
                         )}
                       </div>
                       
@@ -2753,7 +2779,7 @@ export default function App() {
                       <input 
                         type="file" 
                         accept=".xlsx, .xls, .csv"
-                        onChange={(e) => setLedgerForm({ ...ledgerForm, file: e.target.files?.[0] })}
+                        onChange={(e) => setLedgerForm({ ...ledgerForm, file: e.target.files?.[0] || null })}
                         className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
                       />
                       <div className="flex items-center gap-3 px-4 py-4 bg-[#F9FAFB] border-2 border-dashed border-[#E5E7EB] rounded-2xl group-hover:border-[#4F46E5] transition-all">

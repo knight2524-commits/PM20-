@@ -18,13 +18,13 @@ service cloud.firestore {
 
     // Helper Functions
     function isAuthenticated() {
-      // 익명 로그인이 비활성화된 경우를 위해 일시적으로 모든 접속 허용
-      return true; 
+      return request.auth != null;
     }
 
     function isAdmin() {
       return isAuthenticated() && 
-        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
          request.auth.token.email == "knight2524@gmail.com");
     }
 
@@ -55,38 +55,8 @@ service cloud.firestore {
     }
 
     // Rules
-    match /special_promotions/{promotionId} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin();
-    }
-
-    match /ledgers/{ledgerId} {
-      allow read: if isAuthenticated();
-      allow create, delete: if isAdmin();
-      allow update: if isAuthenticated();
-    }
-
-    match /tasks/{taskId} {
-      allow read: if isAuthenticated();
-      allow create, update: if isAuthenticated() && isValidTask(request.resource.data);
-      allow delete: if isAuthenticated(); // In a real app, maybe only admin or owner
-    }
-
-    match /assignees/{assigneeId} {
-      allow read: if isAuthenticated();
-      allow create, update: if isAuthenticated() && isValidAssignee(request.resource.data);
-      allow delete: if isAuthenticated();
-    }
-
-    match /notifications/{notificationId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && isValidNotification(request.resource.data);
-      allow update: if isAuthenticated() && isValidNotification(request.resource.data);
-      allow delete: if isAuthenticated();
-    }
-
-    match /test/connection {
-      allow read: if true;
+    match /{document=**} {
+      allow read, write: if true;
     }
   }
 }
