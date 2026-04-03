@@ -36,6 +36,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { format } from 'date-fns';
+import * as XLSX from 'xlsx';
 import { 
   collection, 
   onSnapshot, 
@@ -227,6 +228,9 @@ export default function App() {
   const [isAssigneeModalOpen, setIsAssigneeModalOpen] = useState(false);
   const [isPromotionModalOpen, setIsPromotionModalOpen] = useState(false);
   const [isLedgerModalOpen, setIsLedgerModalOpen] = useState(false);
+  const [selectedLedger, setSelectedLedger] = useState<Ledger | null>(null);
+  const [isLedgerDetailModalOpen, setIsLedgerDetailModalOpen] = useState(false);
+  const [excelData, setExcelData] = useState<any[]>([]);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [editingPromotion, setEditingPromotion] = useState<SpecialPromotion | null>(null);
   const [editingLedger, setEditingLedger] = useState<Ledger | null>(null);
@@ -292,7 +296,32 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // Save current user to local storage
+  useEffect(() => {
+    if (selectedLedger?.fileUrl && selectedLedger.fileUrl !== '#') {
+      fetch(selectedLedger.fileUrl)
+        .then(res => res.arrayBuffer())
+        .then(buffer => {
+          const workbook = XLSX.read(buffer, { type: 'array' });
+          const firstSheetName = workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[firstSheetName];
+          const data = XLSX.utils.sheet_to_json(worksheet);
+          setExcelData(data);
+        })
+        .catch(err => {
+          console.error('Excel parsing error:', err);
+          setExcelData([]);
+        });
+    } else if (selectedLedger?.fileName) {
+      // Mock data for demo if file exists but URL is #
+      setExcelData([
+        { '항목': '샘플 데이터 1', '수량': 10, '비고': '확인 필요' },
+        { '항목': '샘플 데이터 2', '수량': 5, '비고': '완료' },
+        { '항목': '샘플 데이터 3', '수량': 20, '비고': '진행 중' }
+      ]);
+    } else {
+      setExcelData([]);
+    }
+  }, [selectedLedger]);
   useEffect(() => {
     if (currentUser) {
       localStorage.setItem('taskflow_user', JSON.stringify(currentUser));
@@ -2047,7 +2076,14 @@ export default function App() {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                   {filteredLedgers.map(l => (
-                    <div key={l.id} className="bg-white p-6 rounded-2xl shadow-sm border border-[#E5E7EB] hover:shadow-md transition-all group">
+                    <div 
+                      key={l.id} 
+                      onClick={() => {
+                        setSelectedLedger(l);
+                        setIsLedgerDetailModalOpen(true);
+                      }}
+                      className="bg-white p-6 rounded-2xl shadow-sm border border-[#E5E7EB] hover:shadow-md transition-all group cursor-pointer"
+                    >
                       <div className="flex items-start justify-between mb-4">
                         <div className="flex items-center gap-3">
                           <div className={cn(
@@ -2063,7 +2099,10 @@ export default function App() {
                           </div>
                         </div>
                         {isAdmin && (
-                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                          <div 
+                            className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all"
+                            onClick={(e) => e.stopPropagation()}
+                          >
                             <button 
                               onClick={() => {
                                 setEditingLedger(l);
@@ -2103,7 +2142,10 @@ export default function App() {
                         </div>
                       )}
 
-                      <div className="flex items-center justify-between pt-4 border-t border-[#F3F4F6]">
+                      <div 
+                        className="flex items-center justify-between pt-4 border-t border-[#F3F4F6]"
+                        onClick={(e) => e.stopPropagation()}
+                      >
                         <div className="flex items-center gap-2">
                           <button 
                             onClick={() => toggleLedgerStatus(l)}
@@ -2801,6 +2843,117 @@ export default function App() {
                     {editingLedger ? '수정 완료' : '장부 등록하기'}
                   </button>
                 </form>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* Ledger Detail Modal */}
+        {isLedgerDetailModalOpen && selectedLedger && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              className="bg-white w-full max-w-4xl max-h-[90vh] rounded-[32px] shadow-2xl overflow-hidden flex flex-col"
+            >
+              <div className="p-8 border-b border-[#F3F4F6] flex items-center justify-between bg-gradient-to-r from-indigo-50 to-white">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-white rounded-2xl shadow-sm flex items-center justify-center text-[#4F46E5]">
+                    <FileSpreadsheet className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h2 className="text-2xl font-bold text-[#1A1A1A]">{selectedLedger.title}</h2>
+                    <p className="text-sm text-[#6B7280]">{selectedLedger.assigneeName} 담당</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setIsLedgerDetailModalOpen(false)}
+                  className="p-3 hover:bg-white rounded-2xl transition-all shadow-sm"
+                >
+                  <X className="w-6 h-6 text-[#9CA3AF]" />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-8 space-y-8">
+                <div className="space-y-3">
+                  <h3 className="text-sm font-bold text-[#6B7280] uppercase tracking-wider">상세 설명</h3>
+                  <div className="p-6 bg-[#F9FAFB] rounded-2xl border border-[#E5E7EB] text-[#4B5563] leading-relaxed">
+                    {selectedLedger.description}
+                  </div>
+                </div>
+
+                {selectedLedger.fileName && (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-sm font-bold text-[#6B7280] uppercase tracking-wider">첨부 파일 내용</h3>
+                      <a 
+                        href={selectedLedger.fileUrl} 
+                        className="text-xs font-bold text-[#4F46E5] hover:underline flex items-center gap-1"
+                      >
+                        <FileUp className="w-3 h-3" /> 원본 다운로드
+                      </a>
+                    </div>
+                    
+                    <div className="border border-[#E5E7EB] rounded-2xl overflow-hidden shadow-sm">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm text-left">
+                          <thead className="bg-[#F9FAFB] border-b border-[#E5E7EB]">
+                            <tr>
+                              {excelData.length > 0 && Object.keys(excelData[0]).map((key) => (
+                                <th key={key} className="px-6 py-4 font-bold text-[#374151] whitespace-nowrap">{key}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-[#F3F4F6]">
+                            {excelData.map((row, i) => (
+                              <tr key={i} className="hover:bg-[#F9FAFB] transition-colors">
+                                {Object.values(row).map((val: any, j) => (
+                                  <td key={j} className="px-6 py-4 text-[#4B5563] whitespace-nowrap">{val}</td>
+                                ))}
+                              </tr>
+                            ))}
+                            {excelData.length === 0 && (
+                              <tr>
+                                <td className="px-6 py-12 text-center text-[#9CA3AF] italic">파일 내용을 불러올 수 없거나 데이터가 없습니다.</td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between pt-4 border-t border-[#F3F4F6]">
+                  <div className="flex items-center gap-4">
+                    <span className="text-sm font-bold text-[#6B7280]">진행 상태 변경:</span>
+                    <div className="flex items-center gap-2">
+                      {(['pending', 'checked', 'done'] as LedgerStatusType[]).map((status) => (
+                        <button
+                          key={status}
+                          onClick={() => toggleLedgerStatus(selectedLedger)}
+                          className={cn(
+                            "px-4 py-2 rounded-xl text-sm font-bold transition-all flex items-center gap-2",
+                            selectedLedger.status === status 
+                              ? (status === 'done' ? 'bg-green-500 text-white shadow-lg shadow-green-100' : 
+                                 status === 'checked' ? 'bg-blue-500 text-white shadow-lg shadow-blue-100' : 
+                                 'bg-gray-500 text-white shadow-lg shadow-gray-100')
+                              : 'bg-[#F3F4F6] text-[#6B7280] hover:bg-[#E5E7EB]'
+                          )}
+                        >
+                          {status === 'done' && <CheckCircle className="w-4 h-4" />}
+                          {status === 'checked' && <Clock className="w-4 h-4" />}
+                          {status === 'pending' && <Minus className="w-4 h-4" />}
+                          {status === 'done' ? '완료' : status === 'checked' ? '확인 중' : '대기'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[10px] text-[#9CA3AF]">최종 업데이트</p>
+                    <p className="text-xs font-bold text-[#6B7280]">{format(new Date(selectedLedger.updatedAt), 'yyyy.MM.dd HH:mm')}</p>
+                  </div>
+                </div>
               </div>
             </motion.div>
           </div>
