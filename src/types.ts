@@ -62,7 +62,7 @@ export interface Ledger {
   checks: {
     '5일': boolean;
     '10일': boolean;
-    '15일': boolean;
+    '20일': boolean;
     '25일': boolean;
     '당월': boolean;
   };

@@ -319,10 +319,15 @@ export default function App() {
     } else if (selectedLedger?.fileName) {
       // Mock data for demo if file exists but URL is #
       setExcelData([
-        { '결제일자': '2026-04-05', '지불유형': '카드', '업체코드': 'A001', '업체명': '삼성전자' },
-        { '결제일자': '2026-04-10', '지불유형': '현금', '업체코드': 'A002', '업체명': 'LG전자' },
-        { '결제일자': '2026-04-15', '지불유형': '카드', '업체코드': 'A003', '업체명': 'SK하이닉스' },
-        { '결제일자': '2026-04-25', '지불유형': '이체', '업체코드': 'A004', '업체명': '네이버' }
+        { '업체코드': '62863', '업체명': '삼호에스엔씨', '결제일자': '당월', '지불유형': '구매자금', '비고': '' },
+        { '업체코드': '62268', '업체명': '호스릴', '결제일자': '10일', '지불유형': '현금', '비고': '' },
+        { '업체코드': '62522', '업체명': '오토스테크주식회사(대구)', '결제일자': '10일', '지불유형': '어음', '비고': '60일' },
+        { '업체코드': '62523', '업체명': '주식회사오토스윙(대구)', '결제일자': '10일', '지불유형': '어음', '비고': '60일' },
+        { '업체코드': '62986', '업체명': '글로벌텍(대구)', '결제일자': '10일', '지불유형': '구매자금', '비고': '' },
+        { '업체코드': '63761', '업체명': '신풍섬유', '결제일자': '10일', '지불유형': '구매자금', '비고': '' },
+        { '업체코드': '62517', '업체명': '레오파드', '결제일자': '10일', '지불유형': '구매자금', '비고': '' },
+        { '업체코드': '63735', '업체명': '네오메드', '결제일자': '10일', '지불유형': '구매자금', '비고': '' },
+        { '업체코드': '62263', '업체명': '주식회사 웨프', '결제일자': '10일', '지불유형': '구매자금', '비고': '' }
       ]);
     } else {
       setExcelData([]);
@@ -736,7 +741,7 @@ export default function App() {
           checks: {
             '5일': false,
             '10일': false,
-            '15일': false,
+            '20일': false,
             '25일': false,
             '당월': false
           },
@@ -2176,7 +2181,7 @@ export default function App() {
                               </span>
                             ) : (
                               <div className="flex gap-1">
-                                {['5일', '10일', '15일', '25일', '당월'].map((key) => (
+                                {['5일', '10일', '20일', '25일', '당월'].map((key) => (
                                   <span 
                                     key={key}
                                     className={cn(
@@ -2885,7 +2890,7 @@ export default function App() {
             <motion.div 
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              className="bg-white w-full max-w-5xl max-h-[90vh] rounded-[32px] shadow-2xl overflow-hidden flex flex-col"
+              className="bg-white w-full max-w-6xl max-h-[90vh] rounded-[32px] shadow-2xl overflow-hidden flex flex-col"
             >
               <div className="p-8 border-b border-[#F3F4F6] flex items-center justify-between bg-gradient-to-r from-indigo-50 to-white">
                 <div className="flex items-center gap-4">
@@ -2948,10 +2953,10 @@ export default function App() {
                     <div className="border border-[#E5E7EB] rounded-2xl overflow-hidden shadow-sm bg-white">
                       <div className="overflow-x-auto max-h-[400px]">
                         <table className="w-full text-sm text-left border-collapse">
-                          <thead className="bg-[#F9FAFB] border-b border-[#E5E7EB] sticky top-0 z-10">
+                          <thead className="bg-[#556B2F] border-b border-[#E5E7EB] sticky top-0 z-10">
                             <tr>
-                              {['결제일자', '지불유형', '업체코드', '업체명'].map((col) => (
-                                <th key={col} className="px-6 py-4 font-bold text-[#374151] whitespace-nowrap">{col}</th>
+                              {['업체코드', '업체명', '결제일자', '지불유형', '비고'].map((col) => (
+                                <th key={col} className="px-6 py-4 font-bold text-white whitespace-nowrap text-center">{col}</th>
                               ))}
                             </tr>
                           </thead>
@@ -2962,17 +2967,27 @@ export default function App() {
                                 const typeMatch = !ledgerFilters.paymentType || String(row['지불유형'] || '').includes(ledgerFilters.paymentType);
                                 return dateMatch && typeMatch;
                               })
-                              .map((row, i) => (
-                                <tr key={i} className="hover:bg-[#F9FAFB] transition-colors">
-                                  <td className="px-6 py-4 text-[#4B5563] whitespace-nowrap font-medium">{row['결제일자']}</td>
-                                  <td className="px-6 py-4 text-[#4B5563] whitespace-nowrap">{row['지불유형']}</td>
-                                  <td className="px-6 py-4 text-[#4B5563] whitespace-nowrap font-mono text-xs">{row['업체코드']}</td>
-                                  <td className="px-6 py-4 text-[#4B5563] whitespace-nowrap font-bold">{row['업체명']}</td>
-                                </tr>
-                              ))}
+                              .map((row, i) => {
+                                const isChecked = selectedLedger.checks?.[row['결제일자'] as keyof typeof selectedLedger.checks];
+                                return (
+                                  <tr key={i} className="hover:bg-[#F9FAFB] transition-colors text-center">
+                                    <td className="px-6 py-4 text-[#4B5563] whitespace-nowrap font-mono text-xs">{row['업체코드']}</td>
+                                    <td className="px-6 py-4 text-[#4B5563] whitespace-nowrap font-bold text-blue-600">{row['업체명']}</td>
+                                    <td className={cn(
+                                      "px-6 py-4 whitespace-nowrap font-medium flex items-center justify-center gap-2",
+                                      isChecked ? "text-green-600" : "text-[#4B5563]"
+                                    )}>
+                                      {isChecked && <CheckCircle className="w-4 h-4" />}
+                                      {row['결제일자']}
+                                    </td>
+                                    <td className="px-6 py-4 text-[#4B5563] whitespace-nowrap">{row['지불유형']}</td>
+                                    <td className="px-6 py-4 text-[#4B5563] whitespace-nowrap">{row['비고']}</td>
+                                  </tr>
+                                );
+                              })}
                             {excelData.length === 0 && (
                               <tr>
-                                <td colSpan={4} className="px-6 py-12 text-center text-[#9CA3AF] italic">데이터가 없습니다.</td>
+                                <td colSpan={5} className="px-6 py-12 text-center text-[#9CA3AF] italic">데이터가 없습니다.</td>
                               </tr>
                             )}
                           </tbody>
@@ -2985,7 +3000,7 @@ export default function App() {
                 <div className="pt-8 border-t border-[#F3F4F6]">
                   <h3 className="text-sm font-bold text-[#6B7280] uppercase tracking-wider mb-4">진행 상태 체크</h3>
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
-                    {['5일', '10일', '15일', '25일', '당월'].map((day) => (
+                    {['5일', '10일', '20일', '25일', '당월'].map((day) => (
                       <button
                         key={day}
                         onClick={() => toggleLedgerCheck(selectedLedger, day)}
