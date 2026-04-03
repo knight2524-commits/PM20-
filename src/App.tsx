@@ -121,55 +121,63 @@ const MOCK_TASKS: Task[] = [
     id: '1',
     title: '디자인 시스템 가이드라인 작성',
     description: '브랜드 아이덴티티를 반영한 새로운 디자인 시스템 가이드라인을 작성합니다.',
-    assigneeId: 'u1',
-    assigneeName: '김철수',
+    assigneeIds: ['u1'],
+    assigneeNames: ['김철수'],
     priority: 'high',
     status: 'in-progress',
     dueDate: '2026-04-15',
     createdAt: '2026-03-25',
-    progress: 50
+    progress: 50,
+    alarm1Settings: { hour: 1, minute: 0 },
+    alarm2Settings: { hour: 2, minute: 0 }
   },
   {
     id: '2',
     title: 'API 문서 자동화 스크립트 개발',
     description: 'Swagger를 활용하여 API 문서를 자동으로 생성하는 스크립트를 개발합니다.',
-    assigneeId: 'u2',
-    assigneeName: '이영희',
+    assigneeIds: ['u2'],
+    assigneeNames: ['이영희'],
     priority: 'medium',
     status: 'todo',
     dueDate: '2026-04-20',
     createdAt: '2026-03-28',
-    progress: 0
+    progress: 0,
+    alarm1Settings: { hour: 1, minute: 0 },
+    alarm2Settings: { hour: 2, minute: 0 }
   },
   {
     id: '3',
     title: '고객 피드백 분석 보고서',
     description: '지난 분기 고객 피드백을 분석하여 개선 사항을 도출합니다.',
-    assigneeId: 'u3',
-    assigneeName: '박지민',
+    assigneeIds: ['u3'],
+    assigneeNames: ['박지민'],
     priority: 'low',
     status: 'done',
     dueDate: '2026-04-05',
     createdAt: '2026-03-20',
-    progress: 100
+    progress: 100,
+    alarm1Settings: { hour: 1, minute: 0 },
+    alarm2Settings: { hour: 2, minute: 0 }
   },
   {
     id: '4',
     title: '신규 기능 기획안 검토',
     description: '하반기 출시 예정인 신규 기능에 대한 기획안을 검토하고 피드백을 전달합니다.',
-    assigneeId: 'u4',
-    assigneeName: '최다은',
+    assigneeIds: ['u4'],
+    assigneeNames: ['최다은'],
     priority: 'high',
     status: 'todo',
     dueDate: '2026-04-10',
     createdAt: '2026-03-30',
-    progress: 0
+    progress: 0,
+    alarm1Settings: { hour: 1, minute: 0 },
+    alarm2Settings: { hour: 2, minute: 0 }
   }
 ];
 
 const MOCK_NOTIFICATIONS: AppNotification[] = [
-  { id: 'n1', title: '새 업무 할당', message: '김철수님에게 "디자인 시스템" 업무가 할당되었습니다.', type: 'info', timestamp: new Date().toISOString(), read: false },
-  { id: 'n2', title: '마감 임박', message: '"고객 피드백" 업무 마감이 1시간 남았습니다.', type: 'warning', timestamp: new Date().toISOString(), read: false },
+  { id: 'n1', title: '새 업무 할당', message: '김철수님에게 "디자인 시스템" 업무가 할당되었습니다.', type: 'info', timestamp: new Date().toISOString(), read: false, userId: 'u1' },
+  { id: 'n2', title: '마감 임박', message: '"고객 피드백" 업무 마감이 1시간 남았습니다.', type: 'warning', timestamp: new Date().toISOString(), read: false, userId: 'u3' },
 ];
 
 const PRIORITY_COLORS = {
@@ -369,8 +377,8 @@ export default function App() {
         let taskUpdated = false;
         const updatedAlarms = task.alarms.map(alarm => {
           if (!alarm.triggered && new Date(alarm.time) <= now) {
-            // Trigger alarm if current user is the assignee
-            if (currentUser.id === task.assigneeId) {
+            // Trigger alarm if current user is one of the assignees
+            if (task.assigneeIds?.includes(currentUser.id)) {
               showBrowserNotification('업무 알람', `"${task.title}" 업무의 설정된 알람 시간입니다.`);
               
               // Add to Firestore notifications
@@ -406,12 +414,12 @@ export default function App() {
   const [taskForm, setTaskForm] = useState({
     title: '',
     description: '',
-    assigneeId: MOCK_ASSIGNEES[0].id,
+    assigneeIds: [] as string[],
     priority: 'medium' as Priority,
     dueDate: format(new Date(), 'yyyy-MM-dd'),
     progress: 0,
-    alarm1: 0,
-    alarm2: 0
+    alarm1Settings: { hour: 0, minute: 0 },
+    alarm2Settings: { hour: 0, minute: 0 }
   });
 
   // New Assignee Form State
@@ -435,15 +443,15 @@ export default function App() {
     
     // If not admin, only show assigned tasks
     if (!isAdmin && currentUser) {
-      baseTasks = baseTasks.filter(task => task.assigneeId === currentUser.id);
+      baseTasks = baseTasks.filter(task => task.assigneeIds?.includes(currentUser.id));
     }
     
     return baseTasks.filter(task => {
       const matchesSearch = task.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                           task.assigneeName.toLowerCase().includes(searchQuery.toLowerCase());
+                           task.assigneeNames?.some(name => name.toLowerCase().includes(searchQuery.toLowerCase()));
       const matchesStatus = filters.status === 'all' || task.status === filters.status;
       const matchesPriority = filters.priority === 'all' || task.priority === filters.priority;
-      const matchesAssignee = filters.assigneeId === 'all' || task.assigneeId === filters.assigneeId;
+      const matchesAssignee = filters.assigneeId === 'all' || task.assigneeIds?.includes(filters.assigneeId);
       
       return matchesSearch && matchesStatus && matchesPriority && matchesAssignee;
     });
@@ -471,16 +479,17 @@ export default function App() {
 
   const handleSaveTask = async () => {
     if (!taskForm.title) return;
-    const assignee = assignees.find(a => a.id === taskForm.assigneeId);
+    const selectedAssignees = assignees.filter(a => taskForm.assigneeIds.includes(a.id));
+    const assigneeNames = selectedAssignees.map(a => a.name);
     
     const calculateAlarms = (baseTime: Date) => {
       const alarms: TaskAlarm[] = [];
-      if (taskForm.alarm1 > 0) {
-        const time = new Date(baseTime.getTime() + taskForm.alarm1 * 60 * 60 * 1000);
+      if (taskForm.alarm1Settings.hour > 0 || taskForm.alarm1Settings.minute > 0) {
+        const time = new Date(baseTime.getTime() + (taskForm.alarm1Settings.hour * 60 + taskForm.alarm1Settings.minute) * 60 * 1000);
         alarms.push({ time: time.toISOString(), triggered: false });
       }
-      if (taskForm.alarm2 > 0) {
-        const time = new Date(baseTime.getTime() + taskForm.alarm2 * 60 * 60 * 1000);
+      if (taskForm.alarm2Settings.hour > 0 || taskForm.alarm2Settings.minute > 0) {
+        const time = new Date(baseTime.getTime() + (taskForm.alarm2Settings.hour * 60 + taskForm.alarm2Settings.minute) * 60 * 1000);
         alarms.push({ time: time.toISOString(), triggered: false });
       }
       return alarms;
@@ -489,29 +498,35 @@ export default function App() {
     try {
       if (editingTask) {
         const taskRef = doc(db, 'tasks', editingTask.id);
-        const alarmsChanged = editingTask.alarm1 !== taskForm.alarm1 || editingTask.alarm2 !== taskForm.alarm2;
+        const alarmsChanged = 
+          editingTask.alarm1Settings?.hour !== taskForm.alarm1Settings.hour || 
+          editingTask.alarm1Settings?.minute !== taskForm.alarm1Settings.minute ||
+          editingTask.alarm2Settings?.hour !== taskForm.alarm2Settings.hour || 
+          editingTask.alarm2Settings?.minute !== taskForm.alarm2Settings.minute;
         
         await updateDoc(taskRef, {
           ...taskForm,
-          assigneeName: assignee?.name || 'Unknown',
+          assigneeNames,
           status: taskForm.progress === 100 ? 'done' : (taskForm.progress > 0 ? 'in-progress' : editingTask.status),
           alarms: alarmsChanged ? calculateAlarms(new Date()) : (editingTask.alarms || [])
         });
         
-        // Add notification
-        await addDoc(collection(db, 'notifications'), {
-          title: '업무 수정됨',
-          message: `"${taskForm.title}" 업무가 수정되었습니다.`,
-          type: 'info',
-          timestamp: new Date().toISOString(),
-          read: false,
-          userId: taskForm.assigneeId
-        });
+        // Add notification for each assignee
+        for (const assigneeId of taskForm.assigneeIds) {
+          await addDoc(collection(db, 'notifications'), {
+            title: '업무 수정됨',
+            message: `"${taskForm.title}" 업무가 수정되었습니다.`,
+            type: 'info',
+            timestamp: new Date().toISOString(),
+            read: false,
+            userId: assigneeId
+          });
+        }
       } else {
         const createdAt = new Date().toISOString();
         const taskData = {
           ...taskForm,
-          assigneeName: assignee?.name || 'Unknown',
+          assigneeNames,
           status: taskForm.progress === 100 ? 'done' : (taskForm.progress > 0 ? 'in-progress' : 'todo'),
           createdAt,
           alarms: calculateAlarms(new Date()),
@@ -519,15 +534,17 @@ export default function App() {
         };
         await addDoc(collection(db, 'tasks'), taskData);
         
-        // Add notification
-        await addDoc(collection(db, 'notifications'), {
-          title: '새 업무 추가됨',
-          message: `"${taskForm.title}" 업무가 생성되었습니다.`,
-          type: 'success',
-          timestamp: new Date().toISOString(),
-          read: false,
-          userId: taskForm.assigneeId
-        });
+        // Add notification for each assignee
+        for (const assigneeId of taskForm.assigneeIds) {
+          await addDoc(collection(db, 'notifications'), {
+            title: '새 업무 추가됨',
+            message: `"${taskForm.title}" 업무가 생성되었습니다.`,
+            type: 'success',
+            timestamp: new Date().toISOString(),
+            read: false,
+            userId: assigneeId
+          });
+        }
       }
     } catch (error) {
       handleFirestoreError(error, editingTask ? OperationType.UPDATE : OperationType.CREATE, 'tasks');
@@ -538,12 +555,12 @@ export default function App() {
     setTaskForm({
       title: '',
       description: '',
-      assigneeId: assignees[0]?.id || '',
+      assigneeIds: [],
       priority: 'medium',
       dueDate: format(new Date(), 'yyyy-MM-dd'),
       progress: 0,
-      alarm1: 0,
-      alarm2: 0
+      alarm1Settings: { hour: 0, minute: 0 },
+      alarm2Settings: { hour: 0, minute: 0 }
     });
   };
 
@@ -689,12 +706,12 @@ export default function App() {
     setTaskForm({
       title: task.title,
       description: task.description,
-      assigneeId: task.assigneeId,
+      assigneeIds: task.assigneeIds || [],
       priority: task.priority,
       dueDate: task.dueDate,
       progress: task.progress || 0,
-      alarm1: task.alarm1 || 0,
-      alarm2: task.alarm2 || 0
+      alarm1Settings: task.alarm1Settings || { hour: 0, minute: 0 },
+      alarm2Settings: task.alarm2Settings || { hour: 0, minute: 0 }
     });
     setIsModalOpen(true);
   };
@@ -704,12 +721,12 @@ export default function App() {
     setTaskForm({
       title: '',
       description: '',
-      assigneeId: assignees[0]?.id || '',
+      assigneeIds: [],
       priority: 'medium',
       dueDate: format(new Date(), 'yyyy-MM-dd'),
       progress: 0,
-      alarm1: 0,
-      alarm2: 0
+      alarm1Settings: { hour: 0, minute: 0 },
+      alarm2Settings: { hour: 0, minute: 0 }
     });
     setIsModalOpen(true);
   };
@@ -1605,7 +1622,7 @@ export default function App() {
                                 <div className="w-6 h-6 bg-indigo-50 rounded-full flex items-center justify-center">
                                   <UserIcon className="w-3.5 h-3.5 text-[#4F46E5]" />
                                 </div>
-                                <span className="text-sm">{task.assigneeName}</span>
+                                <span className="text-sm">{task.assigneeNames?.join(', ') || '미지정'}</span>
                               </div>
                             </td>
                             <td className="px-6 py-4">
@@ -1719,7 +1736,7 @@ export default function App() {
                                   <div className="w-5 h-5 bg-indigo-50 rounded-full flex items-center justify-center">
                                     <UserIcon className="w-3 h-3 text-[#4F46E5]" />
                                   </div>
-                                  <span className="text-[10px] font-medium text-[#6B7280]">{task.assigneeName}</span>
+                                  <span className="text-[10px] font-medium text-[#6B7280]">{task.assigneeNames?.join(', ') || '미지정'}</span>
                                 </div>
                                 <div className="flex items-center gap-1 text-[10px] text-[#9CA3AF]">
                                   <Calendar className="w-3 h-3" />
@@ -1850,7 +1867,7 @@ export default function App() {
 
                 <form className="space-y-6" onSubmit={(e) => { 
                   e.preventDefault(); 
-                  const isAssignedToMe = editingTask?.assigneeId === currentUser.id;
+                  const isAssignedToMe = editingTask?.assigneeIds?.includes(currentUser.id);
                   if (isAdmin || isAssignedToMe) handleSaveTask(); 
                   else setIsModalOpen(false); 
                 }}>
@@ -1884,10 +1901,10 @@ export default function App() {
                     />
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4">
                     <div className="space-y-2">
                       <div className="flex items-center justify-between">
-                        <label className="text-sm font-bold text-[#6B7280] uppercase tracking-wider">담당자</label>
+                        <label className="text-sm font-bold text-[#6B7280] uppercase tracking-wider">담당자 (복수 선택 가능)</label>
                         {isAdmin && (
                           <button 
                             type="button"
@@ -1898,19 +1915,26 @@ export default function App() {
                           </button>
                         )}
                       </div>
-                      <select 
-                        value={taskForm.assigneeId}
-                        onChange={(e) => setTaskForm({ ...taskForm, assigneeId: e.target.value })}
-                        disabled={!isAdmin}
-                        className={cn(
-                          "w-full px-4 py-3 bg-[#F9FAFB] border border-[#E5E7EB] rounded-xl focus:ring-2 focus:ring-[#4F46E5] outline-none transition-all",
-                          !isAdmin && "opacity-70 cursor-not-allowed"
-                        )}
-                      >
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-32 overflow-y-auto p-2 bg-[#F9FAFB] border border-[#E5E7EB] rounded-xl">
                         {assignees.map(a => (
-                          <option key={a.id} value={a.id}>{a.name}</option>
+                          <label key={a.id} className="flex items-center gap-2 p-1 cursor-pointer hover:bg-white rounded transition-colors">
+                            <input 
+                              type="checkbox"
+                              checked={taskForm.assigneeIds.includes(a.id)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setTaskForm({ ...taskForm, assigneeIds: [...taskForm.assigneeIds, a.id] });
+                                } else {
+                                  setTaskForm({ ...taskForm, assigneeIds: taskForm.assigneeIds.filter(id => id !== a.id) });
+                                }
+                              }}
+                              disabled={!isAdmin}
+                              className="w-4 h-4 rounded border-[#E5E7EB] text-[#4F46E5] focus:ring-[#4F46E5]"
+                            />
+                            <span className="text-xs font-medium">{a.name}</span>
+                          </label>
                         ))}
-                      </select>
+                      </div>
                     </div>
                     <div className="space-y-2">
                       <label className="text-sm font-bold text-[#6B7280] uppercase tracking-wider">마감일</label>
@@ -1928,36 +1952,54 @@ export default function App() {
                   </div>
 
                   {isAdmin && (
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <label className="text-sm font-bold text-[#6B7280] uppercase tracking-wider">알람 1 (시간 후)</label>
-                        <select 
-                          value={taskForm.alarm1}
-                          onChange={(e) => setTaskForm({ ...taskForm, alarm1: Number(e.target.value) })}
-                          className="w-full px-4 py-3 bg-[#F9FAFB] border border-[#E5E7EB] rounded-xl focus:ring-2 focus:ring-[#4F46E5] outline-none transition-all"
-                        >
-                          <option value={0}>설정 안 함</option>
-                          <option value={1}>1시간 후</option>
-                          <option value={2}>2시간 후</option>
-                          <option value={3}>3시간 후</option>
-                          <option value={4}>4시간 후</option>
-                          <option value={5}>5시간 후</option>
-                        </select>
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-sm font-bold text-[#6B7280] uppercase tracking-wider">알람 2 (시간 후)</label>
-                        <select 
-                          value={taskForm.alarm2}
-                          onChange={(e) => setTaskForm({ ...taskForm, alarm2: Number(e.target.value) })}
-                          className="w-full px-4 py-3 bg-[#F9FAFB] border border-[#E5E7EB] rounded-xl focus:ring-2 focus:ring-[#4F46E5] outline-none transition-all"
-                        >
-                          <option value={0}>설정 안 함</option>
-                          <option value={1}>1시간 후</option>
-                          <option value={2}>2시간 후</option>
-                          <option value={3}>3시간 후</option>
-                          <option value={4}>4시간 후</option>
-                          <option value={5}>5시간 후</option>
-                        </select>
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <label className="text-sm font-bold text-[#6B7280] uppercase tracking-wider">알람 1</label>
+                          <div className="flex gap-2">
+                            <select 
+                              value={taskForm.alarm1Settings.hour}
+                              onChange={(e) => setTaskForm({ ...taskForm, alarm1Settings: { ...taskForm.alarm1Settings, hour: Number(e.target.value) } })}
+                              className="flex-1 px-3 py-2 bg-[#F9FAFB] border border-[#E5E7EB] rounded-xl focus:ring-2 focus:ring-[#4F46E5] outline-none text-sm"
+                            >
+                              {Array.from({ length: 24 }, (_, i) => (
+                                <option key={i} value={i}>{i}시간</option>
+                              ))}
+                            </select>
+                            <select 
+                              value={taskForm.alarm1Settings.minute}
+                              onChange={(e) => setTaskForm({ ...taskForm, alarm1Settings: { ...taskForm.alarm1Settings, minute: Number(e.target.value) } })}
+                              className="flex-1 px-3 py-2 bg-[#F9FAFB] border border-[#E5E7EB] rounded-xl focus:ring-2 focus:ring-[#4F46E5] outline-none text-sm"
+                            >
+                              {[0, 10, 20, 30, 40, 50].map(m => (
+                                <option key={m} value={m}>{m}분 후</option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-sm font-bold text-[#6B7280] uppercase tracking-wider">알람 2</label>
+                          <div className="flex gap-2">
+                            <select 
+                              value={taskForm.alarm2Settings.hour}
+                              onChange={(e) => setTaskForm({ ...taskForm, alarm2Settings: { ...taskForm.alarm2Settings, hour: Number(e.target.value) } })}
+                              className="flex-1 px-3 py-2 bg-[#F9FAFB] border border-[#E5E7EB] rounded-xl focus:ring-2 focus:ring-[#4F46E5] outline-none text-sm"
+                            >
+                              {Array.from({ length: 24 }, (_, i) => (
+                                <option key={i} value={i}>{i}시간</option>
+                              ))}
+                            </select>
+                            <select 
+                              value={taskForm.alarm2Settings.minute}
+                              onChange={(e) => setTaskForm({ ...taskForm, alarm2Settings: { ...taskForm.alarm2Settings, minute: Number(e.target.value) } })}
+                              className="flex-1 px-3 py-2 bg-[#F9FAFB] border border-[#E5E7EB] rounded-xl focus:ring-2 focus:ring-[#4F46E5] outline-none text-sm"
+                            >
+                              {[0, 10, 20, 30, 40, 50].map(m => (
+                                <option key={m} value={m}>{m}분 후</option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   )}

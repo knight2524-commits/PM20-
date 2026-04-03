@@ -29,16 +29,16 @@ export interface Task {
   id: string;
   title: string;
   description: string;
-  assigneeId: string; // Changed to ID for better mapping
-  assigneeName: string; // Keep for convenience
+  assigneeIds: string[]; // Multiple assignees
+  assigneeNames: string[]; // Multiple names
   priority: Priority;
   status: Status;
   dueDate: string;
   createdAt: string;
   progress: number; // 0, 50, 100
   alarms?: TaskAlarm[];
-  alarm1?: number;
-  alarm2?: number;
+  alarm1Settings?: { hour: number; minute: number };
+  alarm2Settings?: { hour: number; minute: number };
   isNew?: boolean;
 }
 
