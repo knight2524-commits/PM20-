@@ -863,9 +863,17 @@ export default function App() {
 
   const toggleLedgerCheck = async (ledger: Ledger, checkKey: string) => {
     try {
+      const currentChecks = ledger.checks || {
+        '5일': false,
+        '10일': false,
+        '20일': false,
+        '25일': false,
+        '당월': false
+      };
+      
       const newChecks = {
-        ...ledger.checks,
-        [checkKey]: !ledger.checks[checkKey as keyof typeof ledger.checks]
+        ...currentChecks,
+        [checkKey]: !currentChecks[checkKey as keyof typeof currentChecks]
       };
       
       await updateDoc(doc(db, 'ledgers', ledger.id), {
@@ -887,19 +895,26 @@ export default function App() {
       
       // Derive date status
       const dateKeys = ['5일', '10일', '20일', '25일', '당월'];
-      const newChecks = { ...ledger.checks };
+      const currentChecks = ledger.checks || {
+        '5일': false,
+        '10일': false,
+        '20일': false,
+        '25일': false,
+        '당월': false
+      };
+      const newChecks = { ...currentChecks };
       
       if (dateKeys.includes(rowDate)) {
-        // Find all rows with this date
-        const rowsForDate = excelData.filter(r => String(r['결제일자'] || '') === rowDate);
-        // Find their indices in the original excelData
+        // Find all rows with this date in the full excelData
         const indicesForDate = excelData
           .map((r, idx) => String(r['결제일자'] || '') === rowDate ? idx : -1)
           .filter(idx => idx !== -1);
         
-        // Check if all these indices are in newCheckedRows
-        const allChecked = indicesForDate.every(idx => newCheckedRows.includes(idx));
-        newChecks[rowDate as keyof typeof ledger.checks] = allChecked;
+        if (indicesForDate.length > 0) {
+          // Check if all these indices are in newCheckedRows
+          const allChecked = indicesForDate.every(idx => newCheckedRows.includes(idx));
+          newChecks[rowDate as keyof typeof currentChecks] = allChecked;
+        }
       }
 
       await updateDoc(doc(db, 'ledgers', ledger.id), {
@@ -3141,21 +3156,22 @@ export default function App() {
                           </thead>
                           <tbody className="divide-y divide-[#F3F4F6]">
                             {excelData
-                              .filter(row => {
+                              .map((row, originalIndex) => ({ row, originalIndex }))
+                              .filter(({ row }) => {
                                 const dateMatch = !ledgerFilters.paymentDate || String(row['결제일자'] || '').includes(ledgerFilters.paymentDate);
                                 const typeMatch = !ledgerFilters.paymentType || String(row['지불유형'] || '').includes(ledgerFilters.paymentType);
                                 return dateMatch && typeMatch;
                               })
-                              .map((row, i) => {
+                              .map(({ row, originalIndex }) => {
                                 const rowDate = String(row['결제일자'] || '');
-                                const isChecked = selectedLedger.checkedRows?.includes(i);
+                                const isChecked = selectedLedger.checkedRows?.includes(originalIndex);
                                 
                                 return (
-                                  <tr key={i} className={cn(
+                                  <tr key={originalIndex} className={cn(
                                     "hover:bg-[#F9FAFB] transition-colors text-center",
                                     isChecked ? "bg-green-50/30" : ""
                                   )}>
-                                    <td className="px-4 py-4 text-[#9CA3AF] font-mono text-[10px]">{i + 1}</td>
+                                    <td className="px-4 py-4 text-[#9CA3AF] font-mono text-[10px]">{originalIndex + 1}</td>
                                     {Object.entries(row).map(([key, value], j) => {
                                       if (key === '결제일자') {
                                         return (
@@ -3165,7 +3181,7 @@ export default function App() {
                                               "px-6 py-4 whitespace-nowrap font-bold flex items-center justify-center gap-2 cursor-pointer hover:bg-gray-50 transition-colors",
                                               isChecked ? "text-green-600" : "text-red-500"
                                             )}
-                                            onClick={() => toggleRowCheck(selectedLedger, i, rowDate)}
+                                            onClick={() => toggleRowCheck(selectedLedger, originalIndex, rowDate)}
                                           >
                                             <div className={cn(
                                               "w-4 h-4 rounded-md flex items-center justify-center border transition-all",
