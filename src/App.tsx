@@ -2112,7 +2112,12 @@ export default function App() {
                           setSelectedLedgerId(l.id);
                           setIsLedgerDetailModalOpen(true);
                         }}
-                        className="bg-white p-6 rounded-2xl shadow-sm border border-[#E5E7EB] hover:shadow-md transition-all group cursor-pointer"
+                        className={cn(
+                          "p-6 rounded-2xl shadow-sm border transition-all group cursor-pointer",
+                          allChecked 
+                            ? "bg-green-50 border-green-200 hover:bg-green-100" 
+                            : "bg-white border-[#E5E7EB] hover:shadow-md"
+                        )}
                       >
                         <div className="flex items-start justify-between mb-4">
                           <div className="flex items-center gap-3">
@@ -2951,11 +2956,11 @@ export default function App() {
                     <h3 className="text-sm font-bold text-[#6B7280] uppercase tracking-wider">첨부 파일 내용 ({selectedLedger.fileName})</h3>
                     
                     <div className="border border-[#E5E7EB] rounded-2xl overflow-hidden shadow-sm bg-white">
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-sm text-left border-collapse">
+                      <div className="overflow-auto max-h-[500px]">
+                        <table className="w-full text-sm text-left border-collapse min-w-full">
                           <thead className="bg-[#EEF2FF] border-b border-[#E0E7FF] sticky top-0 z-10">
                             <tr>
-                              {['업체코드', '업체명', '결제일자', '지불유형', '비고'].map((col) => (
+                              {excelData.length > 0 && Object.keys(excelData[0]).map((col) => (
                                 <th key={col} className="px-6 py-4 font-bold text-[#4338CA] whitespace-nowrap text-center">{col}</th>
                               ))}
                             </tr>
@@ -2968,31 +2973,52 @@ export default function App() {
                                 return dateMatch && typeMatch;
                               })
                               .map((row, i) => {
-                                const isChecked = selectedLedger.checks?.[row['결제일자'] as keyof typeof selectedLedger.checks];
+                                const rowDate = String(row['결제일자'] || '');
+                                const isCheckable = ['5일', '10일', '20일', '25일', '당월'].includes(rowDate);
+                                const isChecked = isCheckable && selectedLedger.checks?.[rowDate as keyof typeof selectedLedger.checks];
+                                
                                 return (
                                   <tr key={i} className="hover:bg-[#F9FAFB] transition-colors text-center">
-                                    <td className="px-6 py-4 text-[#4B5563] whitespace-nowrap font-mono text-xs">{row['업체코드']}</td>
-                                    <td className="px-6 py-4 text-[#4B5563] whitespace-nowrap font-bold text-blue-600">{row['업체명']}</td>
-                                    <td className={cn(
-                                      "px-6 py-4 whitespace-nowrap font-bold flex items-center justify-center gap-2",
-                                      isChecked ? "text-green-600" : "text-red-500"
-                                    )}>
-                                      <div className={cn(
-                                        "w-4 h-4 rounded-md flex items-center justify-center border transition-all",
-                                        isChecked ? "bg-green-500 border-green-500 text-white" : "bg-white border-red-300 text-red-500"
-                                      )}>
-                                        {isChecked ? <CheckCircle className="w-3 h-3" /> : <X className="w-3 h-3" />}
-                                      </div>
-                                      {row['결제일자']}
-                                    </td>
-                                    <td className="px-6 py-4 text-[#4B5563] whitespace-nowrap">{row['지불유형']}</td>
-                                    <td className="px-6 py-4 text-[#4B5563] whitespace-nowrap">{row['비고']}</td>
+                                    {Object.entries(row).map(([key, value], j) => {
+                                      if (key === '결제일자' && isCheckable) {
+                                        return (
+                                          <td 
+                                            key={j} 
+                                            className={cn(
+                                              "px-6 py-4 whitespace-nowrap font-bold flex items-center justify-center gap-2 cursor-pointer hover:bg-gray-50 transition-colors",
+                                              isChecked ? "text-green-600" : "text-red-500"
+                                            )}
+                                            onClick={() => toggleLedgerCheck(selectedLedger, rowDate)}
+                                          >
+                                            <div className={cn(
+                                              "w-4 h-4 rounded-md flex items-center justify-center border transition-all",
+                                              isChecked ? "bg-green-500 border-green-500 text-white" : "bg-white border-red-300 text-red-500"
+                                            )}>
+                                              {isChecked ? <CheckCircle className="w-3 h-3" /> : <X className="w-3 h-3" />}
+                                            </div>
+                                            {String(value)}
+                                          </td>
+                                        );
+                                      }
+                                      return (
+                                        <td 
+                                          key={j} 
+                                          className={cn(
+                                            "px-6 py-4 text-[#4B5563] whitespace-nowrap",
+                                            key === '업체명' ? "font-bold text-blue-600" : "",
+                                            key === '업체코드' ? "font-mono text-xs" : ""
+                                          )}
+                                        >
+                                          {String(value)}
+                                        </td>
+                                      );
+                                    })}
                                   </tr>
                                 );
                               })}
                             {excelData.length === 0 && (
                               <tr>
-                                <td colSpan={5} className="px-6 py-12 text-center text-[#9CA3AF] italic">데이터가 없습니다.</td>
+                                <td colSpan={10} className="px-6 py-12 text-center text-[#9CA3AF] italic">데이터가 없습니다.</td>
                               </tr>
                             )}
                           </tbody>
