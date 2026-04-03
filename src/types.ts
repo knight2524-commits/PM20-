@@ -68,6 +68,7 @@ export interface Ledger {
   };
   checkedRows?: number[];
   ledgerData?: any[];
+  status?: 'todo' | 'in-progress' | 'done';
   fileUrl?: string;
   fileName?: string;
   createdAt: string;

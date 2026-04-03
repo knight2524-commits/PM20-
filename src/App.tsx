@@ -577,9 +577,6 @@ export default function App() {
 
   const filteredLedgers = useMemo(() => {
     let base = ledgers;
-    if (!isAdmin && currentUser) {
-      base = base.filter(l => l.assigneeId === 'all' || l.assigneeId === currentUser.id);
-    }
     return base.filter(l => {
       const search = searchQuery.toLowerCase();
       const matchesSearch = l.title.toLowerCase().includes(search) || 
@@ -587,7 +584,7 @@ export default function App() {
       const matchesAssignee = filters.assigneeId === 'all' || l.assigneeId === filters.assigneeId;
       return matchesSearch && matchesAssignee;
     });
-  }, [ledgers, searchQuery, filters, isAdmin, currentUser]);
+  }, [ledgers, searchQuery, filters]);
 
   const stats = useMemo(() => {
     const baseTasks = isAdmin ? tasks : tasks.filter(t => t.assigneeIds?.includes(currentUser?.id || ''));
@@ -825,7 +822,7 @@ export default function App() {
 
       const { file, ...formData } = ledgerForm;
 
-      if (editingLedger) {
+          if (editingLedger) {
         await updateDoc(doc(db, 'ledgers', editingLedger.id), {
           ...formData,
           ...fileData,
@@ -839,6 +836,7 @@ export default function App() {
           ...fileData,
           ledgerData: extractedData,
           assigneeName: assignee?.name || '',
+          status: 'todo',
           checks: {
             '5일': false,
             '10일': false,
@@ -905,6 +903,17 @@ export default function App() {
       await updateDoc(doc(db, 'ledgers', ledger.id), {
         checkedRows: newCheckedRows,
         checks: newChecks,
+        updatedAt: new Date().toISOString()
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, 'ledgers');
+    }
+  };
+
+  const toggleLedgerStatus = async (ledger: Ledger, status: 'todo' | 'in-progress' | 'done') => {
+    try {
+      await updateDoc(doc(db, 'ledgers', ledger.id), {
+        status,
         updatedAt: new Date().toISOString()
       });
     } catch (error) {
@@ -1326,6 +1335,12 @@ export default function App() {
             active={activeTab === 'promotions'} 
             isOpen={isSidebarOpen}
             onClick={() => setActiveTab('promotions')}
+          />
+          <SidebarItem 
+            icon={<Search className="w-5 h-5" />} 
+            label="브랜드 검색" 
+            isOpen={isSidebarOpen}
+            onClick={() => window.open('https://vendor-search-rho.vercel.app', '_blank')}
           />
           <SidebarItem 
             icon={<BookOpen className="w-5 h-5" />} 
@@ -2242,7 +2257,7 @@ export default function App() {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                   {filteredLedgers.map(l => {
-                    const allChecked = l.checks && Object.values(l.checks).every(v => v);
+                    const isDone = l.status === 'done';
                     
                     return (
                       <div 
@@ -2253,7 +2268,7 @@ export default function App() {
                         }}
                         className={cn(
                           "p-6 rounded-2xl shadow-sm border transition-all group cursor-pointer",
-                          allChecked 
+                          isDone 
                             ? "bg-green-50 border-green-200 hover:bg-green-100" 
                             : "bg-white border-[#E5E7EB] hover:shadow-md"
                         )}
@@ -2262,7 +2277,7 @@ export default function App() {
                           <div className="flex items-center gap-3">
                             <div className={cn(
                               "w-10 h-10 rounded-xl flex items-center justify-center transition-colors",
-                              allChecked ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-600'
+                              isDone ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-600'
                             )}>
                               <FileSpreadsheet className="w-5 h-5" />
                             </div>
@@ -2319,24 +2334,18 @@ export default function App() {
                           onClick={(e) => e.stopPropagation()}
                         >
                           <div className="flex items-center gap-1.5">
-                            {allChecked ? (
+                            {isDone ? (
                               <span className="px-3 py-1 bg-green-500 text-white text-[10px] font-bold rounded-full flex items-center gap-1">
                                 <CheckCircle className="w-3 h-3" /> 완료
                               </span>
+                            ) : l.status === 'in-progress' ? (
+                              <span className="px-3 py-1 bg-blue-500 text-white text-[10px] font-bold rounded-full flex items-center gap-1">
+                                <Clock className="w-3 h-3" /> 진행 중
+                              </span>
                             ) : (
-                              <div className="flex gap-1">
-                                {['5일', '10일', '20일', '25일', '당월'].map((key) => (
-                                  <span 
-                                    key={key}
-                                    className={cn(
-                                      "px-1.5 py-0.5 rounded text-[8px] font-bold",
-                                      l.checks?.[key as keyof typeof l.checks] ? "bg-indigo-100 text-indigo-600" : "bg-gray-100 text-gray-400"
-                                    )}
-                                  >
-                                    {key}
-                                  </span>
-                                ))}
-                              </div>
+                              <span className="px-3 py-1 bg-gray-400 text-white text-[10px] font-bold rounded-full flex items-center gap-1">
+                                <AlertCircle className="w-3 h-3" /> 대기 중
+                              </span>
                             )}
                           </div>
                           <span className="text-[10px] text-[#9CA3AF]">{format(new Date(l.updatedAt), 'MM.dd HH:mm')}</span>
@@ -3151,39 +3160,17 @@ export default function App() {
                                 const isChecked = selectedLedger.checkedRows?.includes(i);
                                 
                                 return (
-                                  <tr key={i} className={cn(
-                                    "hover:bg-[#F9FAFB] transition-colors text-center",
-                                    isChecked ? "bg-green-50/30" : ""
-                                  )}>
+                                  <tr key={i} className="hover:bg-[#F9FAFB] transition-colors text-center">
                                     <td className="px-4 py-4 text-[#9CA3AF] font-mono text-[10px]">{i + 1}</td>
                                     {Object.entries(row).map(([key, value], j) => {
-                                      if (key === '결제일자') {
-                                        return (
-                                          <td 
-                                            key={j} 
-                                            className={cn(
-                                              "px-6 py-4 whitespace-nowrap font-bold flex items-center justify-center gap-2 cursor-pointer hover:bg-gray-50 transition-colors",
-                                              isChecked ? "text-green-600" : "text-red-500"
-                                            )}
-                                            onClick={() => toggleRowCheck(selectedLedger, i, rowDate)}
-                                          >
-                                            <div className={cn(
-                                              "w-4 h-4 rounded-md flex items-center justify-center border transition-all",
-                                              isChecked ? "bg-green-500 border-green-500 text-white" : "bg-white border-red-300 text-red-500"
-                                            )}>
-                                              {isChecked ? <CheckCircle className="w-3 h-3" /> : <X className="w-3 h-3" />}
-                                            </div>
-                                            {String(value)}
-                                          </td>
-                                        );
-                                      }
                                       return (
                                         <td 
                                           key={j} 
                                           className={cn(
                                             "px-6 py-4 text-[#4B5563] whitespace-nowrap",
                                             key === '업체명' ? "font-bold text-blue-600" : "",
-                                            key === '업체코드' ? "font-mono text-xs" : ""
+                                            key === '업체코드' ? "font-mono text-xs" : "",
+                                            key === '결제일자' ? "font-bold text-[#4B5563]" : ""
                                           )}
                                         >
                                           {String(value)}
@@ -3206,28 +3193,25 @@ export default function App() {
                 )}
 
                 <div className="pt-8 border-t border-[#F3F4F6]">
-                  <h3 className="text-sm font-bold text-[#6B7280] uppercase tracking-wider mb-4">진행 상태 체크</h3>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
-                    {['5일', '10일', '20일', '25일', '당월'].map((day) => (
+                  <h3 className="text-sm font-bold text-[#6B7280] uppercase tracking-wider mb-4">진행 상태</h3>
+                  <div className="flex gap-4">
+                    {(['todo', 'in-progress', 'done'] as const).map((status) => (
                       <button
-                        key={day}
-                        onClick={() => toggleLedgerCheck(selectedLedger, day)}
+                        key={status}
+                        onClick={() => toggleLedgerStatus(selectedLedger, status)}
                         className={cn(
-                          "p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-2 group",
-                          selectedLedger.checks?.[day as keyof typeof selectedLedger.checks]
-                            ? "bg-indigo-50 border-[#4F46E5] text-[#4F46E5] shadow-md"
+                          "flex-1 p-4 rounded-2xl border-2 transition-all flex items-center justify-center gap-3 font-bold",
+                          selectedLedger.status === status || (!selectedLedger.status && status === 'todo')
+                            ? status === 'done' ? "bg-green-50 border-green-500 text-green-600 shadow-sm" :
+                              status === 'in-progress' ? "bg-blue-50 border-blue-500 text-blue-600 shadow-sm" :
+                              "bg-gray-50 border-gray-500 text-gray-600 shadow-sm"
                             : "bg-white border-[#E5E7EB] text-[#9CA3AF] hover:border-[#D1D5DB]"
                         )}
                       >
-                        <div className={cn(
-                          "w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all",
-                          selectedLedger.checks?.[day as keyof typeof selectedLedger.checks]
-                            ? "bg-[#4F46E5] border-[#4F46E5] text-white"
-                            : "border-[#E5E7EB] group-hover:border-[#9CA3AF]"
-                        )}>
-                          {selectedLedger.checks?.[day as keyof typeof selectedLedger.checks] && <CheckCircle className="w-4 h-4" />}
-                        </div>
-                        <span className="font-bold text-sm">{day}</span>
+                        {status === 'done' ? <CheckCircle className="w-5 h-5" /> : 
+                         status === 'in-progress' ? <Clock className="w-5 h-5" /> : 
+                         <AlertCircle className="w-5 h-5" />}
+                        {status === 'todo' ? '대기 중' : status === 'in-progress' ? '진행 중' : '완료'}
                       </button>
                     ))}
                   </div>
