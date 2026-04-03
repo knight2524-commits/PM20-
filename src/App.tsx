@@ -37,6 +37,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { format } from 'date-fns';
 import * as XLSX from 'xlsx';
+import { GoogleGenAI, Type } from "@google/genai";
 import { 
   collection, 
   onSnapshot, 
@@ -302,7 +303,9 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (selectedLedger?.fileUrl && selectedLedger.fileUrl !== '#') {
+    if (selectedLedger?.ledgerData && selectedLedger.ledgerData.length > 0) {
+      setExcelData(selectedLedger.ledgerData);
+    } else if (selectedLedger?.fileUrl && selectedLedger.fileUrl !== '#') {
       fetch(selectedLedger.fileUrl)
         .then(res => res.arrayBuffer())
         .then(buffer => {
@@ -318,7 +321,7 @@ export default function App() {
         });
     } else if (selectedLedger?.fileName) {
       // Mock data for demo if file exists but URL is #
-      setExcelData([
+      const mockRows = [
         { '업체코드': '62863', '업체명': '삼호에스엔씨', '결제일자': '당월', '지불유형': '구매자금', '비고': '' },
         { '업체코드': '62268', '업체명': '호스릴', '결제일자': '10일', '지불유형': '현금', '비고': '' },
         { '업체코드': '62522', '업체명': '오토스테크주식회사(대구)', '결제일자': '10일', '지불유형': '어음', '비고': '60일' },
@@ -328,7 +331,20 @@ export default function App() {
         { '업체코드': '62517', '업체명': '레오파드', '결제일자': '10일', '지불유형': '구매자금', '비고': '' },
         { '업체코드': '63735', '업체명': '네오메드', '결제일자': '10일', '지불유형': '구매자금', '비고': '' },
         { '업체코드': '62263', '업체명': '주식회사 웨프', '결제일자': '10일', '지불유형': '구매자금', '비고': '' }
-      ]);
+      ];
+      
+      // Generate up to 50 rows for demo
+      const extendedMock = [...mockRows];
+      for (let i = 0; i < 41; i++) {
+        extendedMock.push({
+          '업체코드': `CODE-${1000 + i}`,
+          '업체명': `테스트 업체 ${i + 1}`,
+          '결제일자': ['5일', '10일', '20일', '25일', '당월'][i % 5],
+          '지불유형': '구매자금',
+          '비고': i % 3 === 0 ? '특이사항 있음' : ''
+        });
+      }
+      setExcelData(extendedMock);
     } else {
       setExcelData([]);
     }
@@ -710,16 +726,99 @@ export default function App() {
     }
   };
 
-   const handleSaveLedger = async (e: React.FormEvent) => {
+  const [isExtracting, setIsExtracting] = useState(false);
+
+  const extractLedgerData = async (file: File): Promise<any[]> => {
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+    
+    // Convert file to base64
+    const base64Data = await new Promise<string>((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const base64 = (reader.result as string).split(',')[1];
+        resolve(base64);
+      };
+      reader.readAsDataURL(file);
+    });
+
+    const prompt = `
+      Extract ledger data from this file. 
+      The output should be an array of objects with the following keys: 
+      '업체코드', '업체명', '결제일자', '지불유형', '비고'.
+      
+      Rules:
+      - '결제일자' should be one of: '5일', '10일', '20일', '25일', '당월'. If not clear, guess the closest one or use '당월'.
+      - Return ONLY the JSON array.
+    `;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: [
+        {
+          parts: [
+            { text: prompt },
+            {
+              inlineData: {
+                data: base64Data,
+                mimeType: file.type
+              }
+            }
+          ]
+        }
+      ],
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              '업체코드': { type: Type.STRING },
+              '업체명': { type: Type.STRING },
+              '결제일자': { type: Type.STRING },
+              '지불유형': { type: Type.STRING },
+              '비고': { type: Type.STRING }
+            },
+            required: ['업체코드', '업체명', '결제일자', '지불유형']
+          }
+        }
+      }
+    });
+
+    try {
+      return JSON.parse(response.text || '[]');
+    } catch (e) {
+      console.error("Failed to parse Gemini response:", e);
+      return [];
+    }
+  };
+
+  const handleSaveLedger = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!ledgerForm.title) return;
+    setIsExtracting(true);
     try {
-      let fileData = {};
+      let fileData: any = {};
+      let extractedData: any[] = [];
+
       if (ledgerForm.file) {
         fileData = {
           fileName: ledgerForm.file.name,
           fileUrl: '#' // Mock URL
         };
+
+        const fileType = ledgerForm.file.type;
+        const isExcel = fileType.includes('spreadsheet') || fileType.includes('excel') || ledgerForm.file.name.endsWith('.xlsx') || ledgerForm.file.name.endsWith('.xls') || ledgerForm.file.name.endsWith('.csv');
+        
+        if (isExcel) {
+          const buffer = await ledgerForm.file.arrayBuffer();
+          const workbook = XLSX.read(buffer, { type: 'array' });
+          const firstSheetName = workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[firstSheetName];
+          extractedData = XLSX.utils.sheet_to_json(worksheet);
+        } else if (fileType.includes('pdf') || fileType.includes('image')) {
+          extractedData = await extractLedgerData(ledgerForm.file);
+        }
       }
 
       const assignee = ledgerForm.assigneeId === 'all' ? { id: 'all', name: '전체' } : assignees.find(a => a.id === ledgerForm.assigneeId);
@@ -730,6 +829,7 @@ export default function App() {
         await updateDoc(doc(db, 'ledgers', editingLedger.id), {
           ...formData,
           ...fileData,
+          ledgerData: extractedData.length > 0 ? extractedData : (editingLedger.ledgerData || []),
           assigneeName: assignee?.name || '',
           updatedAt: new Date().toISOString()
         });
@@ -737,6 +837,7 @@ export default function App() {
         await addDoc(collection(db, 'ledgers'), {
           ...formData,
           ...fileData,
+          ledgerData: extractedData,
           assigneeName: assignee?.name || '',
           checks: {
             '5일': false,
@@ -745,6 +846,7 @@ export default function App() {
             '25일': false,
             '당월': false
           },
+          checkedRows: [],
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString()
         });
@@ -754,6 +856,8 @@ export default function App() {
       setLedgerForm({ title: '', description: '', assigneeId: 'all', file: null });
     } catch (error) {
       handleFirestoreError(error, editingLedger ? OperationType.UPDATE : OperationType.CREATE, 'ledgers');
+    } finally {
+      setIsExtracting(false);
     }
   };
 
@@ -765,6 +869,41 @@ export default function App() {
       };
       
       await updateDoc(doc(db, 'ledgers', ledger.id), {
+        checks: newChecks,
+        updatedAt: new Date().toISOString()
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, 'ledgers');
+    }
+  };
+
+  const toggleRowCheck = async (ledger: Ledger, rowIndex: number, rowDate: string) => {
+    try {
+      const currentCheckedRows = ledger.checkedRows || [];
+      const isChecked = currentCheckedRows.includes(rowIndex);
+      const newCheckedRows = isChecked 
+        ? currentCheckedRows.filter(id => id !== rowIndex)
+        : [...currentCheckedRows, rowIndex];
+      
+      // Derive date status
+      const dateKeys = ['5일', '10일', '20일', '25일', '당월'];
+      const newChecks = { ...ledger.checks };
+      
+      if (dateKeys.includes(rowDate)) {
+        // Find all rows with this date
+        const rowsForDate = excelData.filter(r => String(r['결제일자'] || '') === rowDate);
+        // Find their indices in the original excelData
+        const indicesForDate = excelData
+          .map((r, idx) => String(r['결제일자'] || '') === rowDate ? idx : -1)
+          .filter(idx => idx !== -1);
+        
+        // Check if all these indices are in newCheckedRows
+        const allChecked = indicesForDate.every(idx => newCheckedRows.includes(idx));
+        newChecks[rowDate as keyof typeof ledger.checks] = allChecked;
+      }
+
+      await updateDoc(doc(db, 'ledgers', ledger.id), {
+        checkedRows: newCheckedRows,
         checks: newChecks,
         updatedAt: new Date().toISOString()
       });
@@ -2857,21 +2996,36 @@ export default function App() {
                   </div>
 
                   <div className="space-y-2">
-                    <label className="text-sm font-bold text-[#6B7280] uppercase tracking-wider">파일 첨부 (Excel)</label>
+                    <label className="text-sm font-bold text-[#6B7280] uppercase tracking-wider">파일 첨부 (Excel, PDF, 이미지)</label>
                     <div className="relative group">
                       <input 
                         type="file" 
-                        accept=".xlsx, .xls, .csv"
+                        accept=".xlsx, .xls, .csv, .pdf, .jpg, .jpeg, .png"
                         onChange={(e) => setLedgerForm({ ...ledgerForm, file: e.target.files?.[0] || null })}
                         className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                        disabled={isExtracting}
                       />
-                      <div className="flex items-center gap-3 px-4 py-4 bg-[#F9FAFB] border-2 border-dashed border-[#E5E7EB] rounded-2xl group-hover:border-[#4F46E5] transition-all">
+                      <div className={cn(
+                        "flex items-center gap-3 px-4 py-4 bg-[#F9FAFB] border-2 border-dashed border-[#E5E7EB] rounded-2xl group-hover:border-[#4F46E5] transition-all",
+                        isExtracting && "opacity-50 cursor-not-allowed"
+                      )}>
                         <div className="w-10 h-10 bg-white rounded-xl shadow-sm flex items-center justify-center text-[#4F46E5]">
-                          <FileUp className="w-5 h-5" />
+                          {isExtracting ? (
+                            <motion.div
+                              animate={{ rotate: 360 }}
+                              transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                            >
+                              <Clock className="w-5 h-5" />
+                            </motion.div>
+                          ) : (
+                            <FileUp className="w-5 h-5" />
+                          )}
                         </div>
                         <div className="flex-1">
-                          <p className="text-sm font-bold text-[#1A1A1A]">{ledgerForm.file?.name || '파일을 선택하거나 드래그하세요'}</p>
-                          <p className="text-[10px] text-[#6B7280]">Excel, CSV 파일 지원 (최대 10MB)</p>
+                          <p className="text-sm font-bold text-[#1A1A1A]">
+                            {isExtracting ? '데이터 추출 중...' : (ledgerForm.file?.name || '파일을 선택하거나 드래그하세요')}
+                          </p>
+                          <p className="text-[10px] text-[#6B7280]">Excel, PDF, 이미지 파일 지원 (최대 10MB)</p>
                         </div>
                       </div>
                     </div>
@@ -2879,9 +3033,25 @@ export default function App() {
 
                   <button 
                     type="submit"
-                    className="w-full py-4 bg-[#4F46E5] text-white rounded-2xl font-bold text-lg shadow-xl shadow-indigo-100 hover:bg-[#4338CA] transition-all active:scale-[0.98] mt-4"
+                    disabled={isExtracting}
+                    className={cn(
+                      "w-full py-4 bg-[#4F46E5] text-white rounded-2xl font-bold text-lg shadow-xl shadow-indigo-100 hover:bg-[#4338CA] transition-all active:scale-[0.98] mt-4 flex items-center justify-center gap-2",
+                      isExtracting && "opacity-70 cursor-not-allowed"
+                    )}
                   >
-                    {editingLedger ? '수정 완료' : '장부 등록하기'}
+                    {isExtracting ? (
+                      <>
+                        <motion.div
+                          animate={{ rotate: 360 }}
+                          transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                        >
+                          <Clock className="w-5 h-5" />
+                        </motion.div>
+                        데이터 처리 중...
+                      </>
+                    ) : (
+                      editingLedger ? '수정 완료' : '장부 등록하기'
+                    )}
                   </button>
                 </form>
               </div>
@@ -2953,13 +3123,17 @@ export default function App() {
 
                 {selectedLedger.fileName && (
                   <div className="space-y-4">
-                    <h3 className="text-sm font-bold text-[#6B7280] uppercase tracking-wider">첨부 파일 내용 ({selectedLedger.fileName})</h3>
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-sm font-bold text-[#6B7280] uppercase tracking-wider">첨부 파일 내용 ({selectedLedger.fileName})</h3>
+                      <span className="text-xs text-[#9CA3AF]">총 {excelData.length}개 행</span>
+                    </div>
                     
                     <div className="border border-[#E5E7EB] rounded-2xl overflow-hidden shadow-sm bg-white">
-                      <div className="overflow-auto max-h-[500px]">
+                      <div className="overflow-auto max-h-[600px]">
                         <table className="w-full text-sm text-left border-collapse min-w-full">
                           <thead className="bg-[#EEF2FF] border-b border-[#E0E7FF] sticky top-0 z-10">
                             <tr>
+                              <th className="px-4 py-4 font-bold text-[#4338CA] whitespace-nowrap text-center w-12">#</th>
                               {excelData.length > 0 && Object.keys(excelData[0]).map((col) => (
                                 <th key={col} className="px-6 py-4 font-bold text-[#4338CA] whitespace-nowrap text-center">{col}</th>
                               ))}
@@ -2974,13 +3148,16 @@ export default function App() {
                               })
                               .map((row, i) => {
                                 const rowDate = String(row['결제일자'] || '');
-                                const isCheckable = ['5일', '10일', '20일', '25일', '당월'].includes(rowDate);
-                                const isChecked = isCheckable && selectedLedger.checks?.[rowDate as keyof typeof selectedLedger.checks];
+                                const isChecked = selectedLedger.checkedRows?.includes(i);
                                 
                                 return (
-                                  <tr key={i} className="hover:bg-[#F9FAFB] transition-colors text-center">
+                                  <tr key={i} className={cn(
+                                    "hover:bg-[#F9FAFB] transition-colors text-center",
+                                    isChecked ? "bg-green-50/30" : ""
+                                  )}>
+                                    <td className="px-4 py-4 text-[#9CA3AF] font-mono text-[10px]">{i + 1}</td>
                                     {Object.entries(row).map(([key, value], j) => {
-                                      if (key === '결제일자' && isCheckable) {
+                                      if (key === '결제일자') {
                                         return (
                                           <td 
                                             key={j} 
@@ -2988,7 +3165,7 @@ export default function App() {
                                               "px-6 py-4 whitespace-nowrap font-bold flex items-center justify-center gap-2 cursor-pointer hover:bg-gray-50 transition-colors",
                                               isChecked ? "text-green-600" : "text-red-500"
                                             )}
-                                            onClick={() => toggleLedgerCheck(selectedLedger, rowDate)}
+                                            onClick={() => toggleRowCheck(selectedLedger, i, rowDate)}
                                           >
                                             <div className={cn(
                                               "w-4 h-4 rounded-md flex items-center justify-center border transition-all",
