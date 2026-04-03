@@ -362,10 +362,9 @@ export default function App() {
 
     const interval = setInterval(() => {
       const now = new Date();
-      let updated = false;
       
-      const newTasks = tasks.map(task => {
-        if (!task.alarms || task.alarms.length === 0) return task;
+      tasks.forEach(async (task) => {
+        if (!task.alarms || task.alarms.length === 0) return;
         
         let taskUpdated = false;
         const updatedAlarms = task.alarms.map(alarm => {
@@ -374,34 +373,31 @@ export default function App() {
             if (currentUser.id === task.assigneeId) {
               showBrowserNotification('업무 알람', `"${task.title}" 업무의 설정된 알람 시간입니다.`);
               
-              // Also add to in-app notifications
-              const notification: AppNotification = {
-                id: Math.random().toString(36).substr(2, 9),
+              // Add to Firestore notifications
+              addDoc(collection(db, 'notifications'), {
                 title: '업무 알람',
                 message: `"${task.title}" 업무의 알람 시간입니다.`,
                 type: 'warning',
                 timestamp: new Date().toISOString(),
-                read: false
-              };
-              setNotifications(prev => [notification, ...prev]);
+                read: false,
+                userId: currentUser.id
+              }).catch(err => console.error("Notification error:", err));
             }
             taskUpdated = true;
-            updated = true;
             return { ...alarm, triggered: true };
           }
           return alarm;
         });
 
         if (taskUpdated) {
-          return { ...task, alarms: updatedAlarms };
+          try {
+            await updateDoc(doc(db, 'tasks', task.id), { alarms: updatedAlarms });
+          } catch (error) {
+            console.error("Alarm update error:", error);
+          }
         }
-        return task;
       });
-
-      if (updated) {
-        setTasks(newTasks);
-      }
-    }, 10000); // Check every 10 seconds for better responsiveness
+    }, 10000); // Check every 10 seconds
 
     return () => clearInterval(interval);
   }, [tasks, currentUser]);
@@ -493,11 +489,13 @@ export default function App() {
     try {
       if (editingTask) {
         const taskRef = doc(db, 'tasks', editingTask.id);
+        const alarmsChanged = editingTask.alarm1 !== taskForm.alarm1 || editingTask.alarm2 !== taskForm.alarm2;
+        
         await updateDoc(taskRef, {
           ...taskForm,
           assigneeName: assignee?.name || 'Unknown',
           status: taskForm.progress === 100 ? 'done' : (taskForm.progress > 0 ? 'in-progress' : editingTask.status),
-          alarms: calculateAlarms(new Date(editingTask.createdAt))
+          alarms: alarmsChanged ? calculateAlarms(new Date()) : (editingTask.alarms || [])
         });
         
         // Add notification
@@ -516,7 +514,7 @@ export default function App() {
           assigneeName: assignee?.name || 'Unknown',
           status: taskForm.progress === 100 ? 'done' : (taskForm.progress > 0 ? 'in-progress' : 'todo'),
           createdAt,
-          alarms: calculateAlarms(new Date(createdAt)),
+          alarms: calculateAlarms(new Date()),
           isNew: true
         };
         await addDoc(collection(db, 'tasks'), taskData);
@@ -695,8 +693,8 @@ export default function App() {
       priority: task.priority,
       dueDate: task.dueDate,
       progress: task.progress || 0,
-      alarm1: 0,
-      alarm2: 0
+      alarm1: task.alarm1 || 0,
+      alarm2: task.alarm2 || 0
     });
     setIsModalOpen(true);
   };

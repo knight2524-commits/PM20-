@@ -37,6 +37,8 @@ export interface Task {
   createdAt: string;
   progress: number; // 0, 50, 100
   alarms?: TaskAlarm[];
+  alarm1?: number;
+  alarm2?: number;
   isNew?: boolean;
 }
 
@@ -47,4 +49,5 @@ export interface AppNotification {
   type: 'info' | 'success' | 'warning';
   timestamp: string;
   read: boolean;
+  userId?: string;
 }
