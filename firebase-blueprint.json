@@ -101,6 +101,7 @@
           }
         },
         "checkedRows": { "type": "array", "items": { "type": "integer" } },
+        "ledgerData": { "type": "array", "items": { "type": "object" } },
         "fileUrl": { "type": "string" },
         "fileName": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" },
