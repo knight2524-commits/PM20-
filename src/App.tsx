@@ -34,7 +34,8 @@ import {
   FileSpreadsheet,
   FileUp,
   Package,
-  Shield
+  Shield,
+  TrendingUp
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { format } from 'date-fns';
@@ -1460,6 +1461,12 @@ export default function App() {
             label="브랜드 검색" 
             isOpen={isSidebarOpen}
             onClick={() => window.open('https://vendor-search-rho.vercel.app', '_blank')}
+          />
+          <SidebarItem 
+            icon={<TrendingUp className="w-5 h-5" />} 
+            label="발주예측" 
+            isOpen={isSidebarOpen}
+            onClick={() => window.open('https://order-sable.vercel.app', '_blank')}
           />
           <SidebarItem 
             icon={<BookOpen className="w-5 h-5" />} 
