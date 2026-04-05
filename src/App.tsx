@@ -1407,13 +1407,25 @@ export default function App() {
         </div>
 
         <nav className="flex-1 px-4 space-y-2 mt-4">
-          <SidebarItem 
-            icon={<LayoutDashboard className="w-5 h-5" />} 
-            label="대시보드" 
-            active={activeTab === 'dashboard'} 
-            isOpen={isSidebarOpen}
-            onClick={() => setActiveTab('dashboard')}
-          />
+          <div className="space-y-1">
+            <SidebarItem 
+              icon={<LayoutDashboard className="w-5 h-5" />} 
+              label="대시보드" 
+              active={activeTab === 'dashboard'} 
+              isOpen={isSidebarOpen}
+              onClick={() => setActiveTab('dashboard')}
+            />
+            {isSidebarOpen && activeTab === 'dashboard' && isAdmin && (
+              <div className="pl-12 space-y-1">
+                <button 
+                  onClick={() => window.open('https://market-insight-ten.vercel.app', '_blank')}
+                  className="w-full text-left p-2 text-sm rounded-lg transition-colors text-[#6B7280] hover:bg-[#F9FAFB]"
+                >
+                  시장분석
+                </button>
+              </div>
+            )}
+          </div>
           <SidebarItem 
             icon={<Calendar className="w-5 h-5" />} 
             label="월간업무" 
