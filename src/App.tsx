@@ -1037,7 +1037,7 @@ export default function App() {
         if (currentUser) {
           await addDoc(collection(db, 'notifications'), {
             title: '장부 삭제됨',
-            message: `"${deleteConfirmation.title}" 장부 현황이 삭제되었습니다.`,
+            message: `"${deleteConfirmation.title}" 장부가 삭제되었습니다.`,
             type: 'warning',
             timestamp: new Date().toISOString(),
             read: false,
@@ -1289,7 +1289,7 @@ export default function App() {
             <div className="w-16 h-16 bg-[#4F46E5] rounded-2xl flex items-center justify-center text-white shadow-xl mb-4">
               <FolderKanban className="w-10 h-10" />
             </div>
-            <h1 className="text-2xl font-bold tracking-tight">TaskFlow 로그인</h1>
+            <h1 className="text-2xl font-bold tracking-tight">TotalFlow 로그인</h1>
             <p className="text-[#6B7280] text-sm mt-1">
               {loginUser ? `${loginUser.name}님으로 로그인` : '계정 유형을 선택하여 시작하세요.'}
             </p>
@@ -1401,7 +1401,7 @@ export default function App() {
               animate={{ opacity: 1 }}
               className="font-bold text-xl tracking-tight"
             >
-              TaskFlow
+              TotalFlow
             </motion.span>
           )}
         </div>
@@ -1468,13 +1468,25 @@ export default function App() {
             isOpen={isSidebarOpen}
             onClick={() => window.open('https://order-sable.vercel.app', '_blank')}
           />
-          <SidebarItem 
-            icon={<BookOpen className="w-5 h-5" />} 
-            label="장부 현황" 
-            active={activeTab === 'ledgers'} 
-            isOpen={isSidebarOpen}
-            onClick={() => setActiveTab('ledgers')}
-          />
+          <div className="space-y-1">
+            <SidebarItem 
+              icon={<BookOpen className="w-5 h-5" />} 
+              label="장부" 
+              active={activeTab === 'ledgers'} 
+              isOpen={isSidebarOpen}
+              onClick={() => setActiveTab('ledgers')}
+            />
+            {isSidebarOpen && activeTab === 'ledgers' && (
+              <div className="pl-12 space-y-1">
+                <button 
+                  onClick={() => window.open('https://ledger-iltest.streamlit.app/', '_blank')}
+                  className="w-full text-left p-2 text-sm rounded-lg transition-colors text-[#6B7280] hover:bg-[#F9FAFB]"
+                >
+                  장부관리툴
+                </button>
+              </div>
+            )}
+          </div>
           <SidebarItem 
             icon={<Users className="w-5 h-5" />} 
             label="팀원 관리" 
@@ -2714,7 +2726,7 @@ export default function App() {
                 className="space-y-6"
               >
                 <div className="flex items-center justify-between">
-                  <h2 className="text-2xl font-bold">장부 현황</h2>
+                  <h2 className="text-2xl font-bold">장부</h2>
                   {isAdmin && (
                     <button 
                       onClick={() => {
@@ -2829,7 +2841,7 @@ export default function App() {
                   })}
                   {filteredLedgers.length === 0 && (
                     <div className="col-span-full py-12 text-center bg-white rounded-2xl border border-dashed border-[#D1D5DB]">
-                      <p className="text-[#9CA3AF] italic">등록된 장부 현황이 없습니다.</p>
+                      <p className="text-[#9CA3AF] italic">등록된 장부가 없습니다.</p>
                     </div>
                   )}
                 </div>
@@ -3301,7 +3313,7 @@ export default function App() {
                    deleteConfirmation.type === 'assignee' ? `"${deleteConfirmation.title}" 팀원 정보가 영구적으로 삭제됩니다.` : 
                    deleteConfirmation.type === 'promotion' ? `"${deleteConfirmation.title}" 특판 정보가 영구적으로 삭제됩니다.` :
                    deleteConfirmation.type === 'competitive_price' ? `"${deleteConfirmation.title}" 대응가격 정보가 영구적으로 삭제됩니다.` :
-                   deleteConfirmation.type === 'ledger' ? `"${deleteConfirmation.title}" 장부 현황이 영구적으로 삭제됩니다.` :
+                   deleteConfirmation.type === 'ledger' ? `"${deleteConfirmation.title}" 장부가 영구적으로 삭제됩니다.` :
                    '모든 데이터가 초기화되며 복구할 수 없습니다.'}
                 </p>
                 <div className="flex gap-3">
