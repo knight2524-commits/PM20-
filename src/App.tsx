@@ -1494,7 +1494,13 @@ export default function App() {
                   onClick={() => window.open('https://ledger-iltest.streamlit.app/', '_blank')}
                   className="w-full text-left p-2 text-sm rounded-lg transition-colors text-[#6B7280] hover:bg-[#F9FAFB]"
                 >
-                  장부관리툴
+                  일신비츠온[장부마감]
+                </button>
+                <button 
+                  onClick={() => window.open('https://gor-sy9h.vercel.app', '_blank')}
+                  className="w-full text-left p-2 text-sm rounded-lg transition-colors text-[#6B7280] hover:bg-[#F9FAFB]"
+                >
+                  고려용접봉[장부마감]
                 </button>
               </div>
             )}
