@@ -97,3 +97,13 @@ export interface AppNotification {
   read: boolean;
   userId?: string;
 }
+
+export interface PriceChange {
+  id: string;
+  brand: string;
+  targetIncrease: string;
+  increase: string;
+  targetDecrease: string;
+  decrease: string;
+  createdAt: string;
+}

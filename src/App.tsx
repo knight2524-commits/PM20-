@@ -35,7 +35,8 @@ import {
   FileUp,
   Package,
   Shield,
-  TrendingUp
+  TrendingUp,
+  TrendingDown
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { format } from 'date-fns';
@@ -57,7 +58,7 @@ import {
 } from 'firebase/firestore';
 import { db, auth, signInAnonymously, signOut, onAuthStateChanged } from './firebase';
 import { cn } from './lib/utils';
-import { Task, Priority, Assignee, AppNotification, Status, User, UserRole, TaskAlarm, SpecialPromotion, Ledger, CompetitivePrice } from './types';
+import { Task, Priority, Assignee, AppNotification, Status, User, UserRole, TaskAlarm, SpecialPromotion, Ledger, CompetitivePrice, PriceChange } from './types';
 
 enum OperationType {
   CREATE = 'create',
@@ -214,8 +215,9 @@ export default function App() {
   const [promotions, setPromotions] = useState<SpecialPromotion[]>([]);
   const [ledgers, setLedgers] = useState<Ledger[]>([]);
   const [competitivePrices, setCompetitivePrices] = useState<CompetitivePrice[]>([]);
+  const [priceChanges, setPriceChanges] = useState<PriceChange[]>([]);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'monthly_tasks' | 'tasks' | 'promotions' | 'competitive_prices' | 'ledgers' | 'team' | 'settings'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'monthly_tasks' | 'tasks' | 'price_change' | 'promotions' | 'competitive_prices' | 'ledgers' | 'team' | 'settings'>('tasks');
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState<'list' | 'board'>('list');
   const [filters, setFilters] = useState<{
@@ -1442,6 +1444,25 @@ export default function App() {
           />
           <div className="space-y-1">
             <SidebarItem 
+              icon={<TrendingDown className="w-5 h-5" />} 
+              label="단가변경" 
+              active={activeTab === 'price_change'} 
+              isOpen={isSidebarOpen}
+              onClick={() => setActiveTab('price_change')}
+            />
+            {isSidebarOpen && activeTab === 'price_change' && (
+              <div className="pl-12 space-y-1">
+                <button 
+                  onClick={() => window.open('https://txbkcxqxhqpxmv8gup48pc.streamlit.app/', '_blank')}
+                  className="w-full text-left p-2 text-sm rounded-lg transition-colors text-[#6B7280] hover:bg-[#F9FAFB]"
+                >
+                  가격인상
+                </button>
+              </div>
+            )}
+          </div>
+          <div className="space-y-1">
+            <SidebarItem 
               icon={<Tag className="w-5 h-5" />} 
               label="특판 안내" 
               active={activeTab === 'promotions' || activeTab === 'competitive_prices'} 
@@ -2286,6 +2307,108 @@ export default function App() {
                         </div>
                       </div>
                     ))}
+                  </div>
+                )}
+              </motion.div>
+            )}
+
+            {activeTab === 'price_change' && (
+              <motion.div 
+                key="price_change"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                className="space-y-8"
+              >
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div>
+                    <h2 className="text-2xl font-bold text-[#1A1A1A]">단가변경</h2>
+                    <p className="text-[#6B7280] mt-1">단가 변경 내역을 관리하고 확인합니다.</p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <button 
+                      className="flex items-center gap-2 px-4 py-2 bg-white border border-[#E5E7EB] text-[#374151] rounded-xl font-bold hover:bg-[#F9FAFB] transition-all shadow-sm"
+                      onClick={() => {
+                        const input = document.createElement('input');
+                        input.type = 'file';
+                        input.accept = '.xlsx, .xls';
+                        input.onchange = (e) => {
+                          const file = (e.target as HTMLInputElement).files?.[0];
+                          if (file) {
+                            const reader = new FileReader();
+                            reader.onload = (evt) => {
+                              const bstr = evt.target?.result;
+                              const wb = XLSX.read(bstr, { type: 'binary' });
+                              const wsname = wb.SheetNames[0];
+                              const ws = wb.Sheets[wsname];
+                              const data = XLSX.utils.sheet_to_json(ws) as any[];
+                              
+                              const newPriceChanges: PriceChange[] = data.map((row, index) => {
+                                const keys = Object.keys(row);
+                                const targetKeys = keys.filter(k => k.includes('적용대상') || k.includes('작용대상'));
+
+                                return {
+                                  id: `pc-${Date.now()}-${index}`,
+                                  brand: row['브랜드명'] || row['브랜드'] || '',
+                                  targetIncrease: row['작용대상'] || row['적용대상'] || (targetKeys[0] ? row[targetKeys[0]] : ''),
+                                  increase: row['단가(인상)'] || row['인상'] || '',
+                                  targetDecrease: targetKeys.length > 1 ? row[targetKeys[1]] : (row['적용대상'] || ''),
+                                  decrease: row['단가(인하)'] || row['인하'] || '',
+                                  createdAt: new Date().toISOString()
+                                };
+                              }).filter(item => item.brand || item.targetIncrease || item.targetDecrease);
+
+                              setPriceChanges(prev => [...newPriceChanges, ...prev]);
+                            };
+                            reader.readAsBinaryString(file);
+                          }
+                        };
+                        input.click();
+                      }}
+                    >
+                      <FileUp className="w-4 h-4" /> 엑셀첨부하기
+                    </button>
+                  </div>
+                </div>
+
+                {priceChanges.length > 0 ? (
+                  <div className="bg-white rounded-3xl border border-[#E5E7EB] shadow-sm overflow-hidden">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="bg-[#F9FAFB] border-b border-[#E5E7EB]">
+                            <th className="px-6 py-4 text-xs font-bold text-[#6B7280] uppercase tracking-wider">브랜드명</th>
+                            <th className="px-6 py-4 text-xs font-bold text-[#6B7280] uppercase tracking-wider">적용대상</th>
+                            <th className="px-6 py-4 text-xs font-bold text-[#6B7280] uppercase tracking-wider">단가(인상)</th>
+                            <th className="px-6 py-4 text-xs font-bold text-[#6B7280] uppercase tracking-wider">적용대상</th>
+                            <th className="px-6 py-4 text-xs font-bold text-[#6B7280] uppercase tracking-wider">단가(인하)</th>
+                            <th className="px-6 py-4 text-xs font-bold text-[#6B7280] uppercase tracking-wider whitespace-nowrap">등록일</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[#F3F4F6]">
+                          {priceChanges.map((pc) => (
+                            <tr key={pc.id} className="hover:bg-[#F9FAFB] transition-colors">
+                              <td className="px-6 py-4 text-sm font-medium text-[#1A1A1A]">{pc.brand}</td>
+                              <td className="px-6 py-4 text-sm text-[#4B5563]">{pc.targetIncrease}</td>
+                              <td className="px-6 py-4 text-sm text-red-600 font-medium">{pc.increase}</td>
+                              <td className="px-6 py-4 text-sm text-[#4B5563]">{pc.targetDecrease}</td>
+                              <td className="px-6 py-4 text-sm text-blue-600 font-medium">{pc.decrease}</td>
+                              <td className="px-6 py-4 text-sm text-[#9CA3AF] whitespace-nowrap">
+                                {format(new Date(pc.createdAt), 'yyyy-MM-dd')}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="bg-white p-12 rounded-3xl border border-[#E5E7EB] shadow-sm text-center">
+                    <div className="w-20 h-20 bg-indigo-50 rounded-full flex items-center justify-center text-[#4F46E5] mx-auto mb-6">
+                      <TrendingDown className="w-10 h-10" />
+                    </div>
+                    <h3 className="text-xl font-bold text-[#1A1A1A] mb-2">단가변경 내역이 없습니다</h3>
+                    <p className="text-[#6B7280]">엑셀 파일을 첨부하여 단가 변경 내역을 등록하세요.</p>
                   </div>
                 )}
               </motion.div>
