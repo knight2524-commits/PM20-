@@ -1425,6 +1425,12 @@ export default function App() {
                 >
                   시장분석
                 </button>
+                <button 
+                  onClick={() => window.open('https://naverinshight.vercel.app/', '_blank')}
+                  className="w-full text-left p-2 text-sm rounded-lg transition-colors text-[#6B7280] hover:bg-[#F9FAFB]"
+                >
+                  키워드분석
+                </button>
               </div>
             )}
           </div>
